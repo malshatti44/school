@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام البصمة - مدرسة أحمد محمد السقاف</title>
+    <style>
+        /* التنسيق العام للصفحة */
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121220;
+            color: white;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        /* تنسيق الشعار في الأعلى */
+        .header {
+            margin-top: 30px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .header img {
+            max-width: 500px;
+            width: 90vw;
+            height: auto;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5);
+        }
+
+        /* حاوية جهاز البصمة */
+        .device-container {
+            position: relative;
+            width: 450px;
+            max-width: 95vw;
+        }
+        .device-container > img {
+            width: 100%;
+            display: block;
+        }
+
+        /* الطبقة الشفافة التي تمثل الشاشة الداخلية للجهاز */
+        .screen-overlay {
+            position: absolute;
+            top: 22%;
+            left: 23%;
+            width: 54%;
+            height: 52%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            box-sizing: border-box;
+            z-index: 10;
+        }
+
+        /* تنسيق الأزرار */
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            align-items: center;
+            margin-top: 25px;
+        }
+        .action-buttons button {
+            background: rgba(255, 255, 255, 0.15);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            color: white;
+            padding: 10px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            width: 85%;
+            backdrop-filter: blur(4px);
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .action-buttons button:hover {
+            background: rgba(0, 150, 255, 0.4);
+            border-color: #00d2ff;
+            transform: scale(1.05);
+        }
+
+        /* تنسيق الساعة والتاريخ */
+        .datetime-container {
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 0 0 10px #00d2ff, 0 0 20px #00d2ff;
+        }
+        .time {
+            font-size: 28px;
+            font-weight: bold;
+            letter-spacing: 2px;
+            margin-bottom: 5px;
+        }
+        .date {
+            font-size: 14px;
+            color: #e0f7fa;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <img src="img/logo.jpeg" alt="شعار مدرسة أحمد محمد السقاف">
+    </div>
+
+    <div class="device-container">
+        <img src="img/device.jpeg" alt="جهاز البصمة">
+
+        <div class="screen-overlay">
+            
+            <div class="action-buttons">
+                <button onclick="registerAttendance('دخول')">بصمة دخول</button>
+                <button onclick="registerAttendance('تواجــد')">بصمة تواجد</button>
+                <button onclick="registerAttendance('انصراف')">بصمة انصراف</button>
+            </div>
+
+            <div class="datetime-container">
+                <div class="time" id="clock">00:00:00</div>
+                <div class="date" id="dateDisplay">التاريخ هنا</div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        function updateDateTime() {
+            const now = new Date();
+
+            let hours = now.getHours().toString().padStart(2, '0');
+            let minutes = now.getMinutes().toString().padStart(2, '0');
+            let seconds = now.getSeconds().toString().padStart(2, '0');
+            document.getElementById('clock').textContent = `${hours}:${minutes}:${seconds}`;
+
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            document.getElementById('dateDisplay').textContent = now.toLocaleDateString('ar-EG', options);
+        }
+
+        setInterval(updateDateTime, 1000);
+        updateDateTime();
+
+        function registerAttendance(type) {
+            const name = prompt(`تسجيل بصمة (${type})\nالرجاء إدخال اسمك الكريم:`);
+
+            if (name && name.trim() !== "") {
+                const currentTime = document.getElementById('clock').textContent;
+                alert(`✅ تمت العملية بنجاح!\n\nالاسم: ${name}\nنوع البصمة: ${type}\nوقت التسجيل: ${currentTime}`);
+            } else if (name !== null) {
+                alert("❌ عذراً، يجب إدخال الاسم لإتمام عملية التسجيل.");
+            }
+        }
+    </script>
+
+</body>
+</html>
