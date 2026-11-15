@@ -10,11 +10,18 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 function blank() {
   return {
     school: { name: '', year: '', region: '', logo: '', periods: 7, startDate: '', grades: [{ g: 6, n: 5 }, { g: 7, n: 5 }, { g: 8, n: 5 }, { g: 9, n: 5 }] },
-    subjects: [], teachers: [], assign: {}, cards: [], subs: []
+    subjects: [], teachers: [], rooms: [], assign: {}, cards: [], subs: [], rules: { gaps: true, spread: true }
   };
 }
 let S;
 try { S = JSON.parse(localStorage.getItem(KEY)) || blank(); } catch (e) { S = blank(); }
+const PALETTE = ['#cfe8ff', '#ffd9d9', '#d7f5d0', '#fff1b8', '#e8dcff', '#ffe0c2', '#c9f2ee', '#f9d5ec', '#e0e7d0', '#dcdcdc', '#ffd6a5', '#bde0fe', '#caffbf', '#fdffb6', '#ffc6ff', '#a0c4ff'];
+S.rooms ||= []; S.rules ||= { gaps: true, spread: true };
+S.subjects.forEach((s, i) => s.color ||= PALETTE[i % PALETTE.length]);
+const subColor = id => sub(id)?.color || '#eee';
+let UNDO = [];
+function snap() { UNDO.push(JSON.stringify(S.cards.map(c => [c.id, c.d, c.p, c.locked, c.room]))); if (UNDO.length > 50) UNDO.shift(); }
+function undo() { const u = UNDO.pop(); if (!u) return toast('لا يوجد ما يُتراجع عنه'); const m = new Map(JSON.parse(u).map(x => [x[0], x])); S.cards.forEach(c => { const x = m.get(c.id); if (x) [, c.d, c.p, c.locked, c.room] = x; }); save(); render(); toast('تم التراجع'); }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { toast('تعذّر الحفظ على الجهاز، صدّر نسخة احتياطية'); } }
 
 const P = () => +S.school.periods || 7;
@@ -28,7 +35,7 @@ function toast(m, ms = 3500) { const t = $('#toast'); t.textContent = m; t.style
 
 /* ===================== التبويبات ===================== */
 const TABS = [
-  ['setup', 'بيانات المدرسة'], ['subjects', 'المواد'], ['teachers', 'المعلمون'], ['assign', 'التوزيع'],
+  ['setup', 'بيانات المدرسة'], ['subjects', 'المواد والأقسام'], ['teachers', 'المعلمون'], ['rooms', 'القاعات'], ['assign', 'التوزيع'], ['rules', 'القواعد والفحص'],
   ['tt', 'الجدول'], ['subs', 'الاحتياط'], ['print', 'الطباعة والمعاينة'], ['backup', 'نسخة احتياطية']
 ];
 let tab = S.school.name ? 'tt' : 'setup';
@@ -37,7 +44,7 @@ function renderTabs() {
   $('#tabs').onclick = e => { const b = e.target.closest('button'); if (b) { tab = b.dataset.t; render(); } };
 }
 function header() {
-  $('#hTitle').textContent = S.school.name || 'منظم الجدول المدرسي';
+  $('#hTitle').textContent = S.school.name || 'الجدول المدرسي الرقمي';
   $('#hYear').textContent = S.school.year ? 'العام الدراسي ' + S.school.year : '';
   const l = $('#hLogo'); if (S.school.logo) { l.src = S.school.logo; l.hidden = false; } else l.hidden = true;
 }
@@ -86,22 +93,26 @@ VIEWS.subjects = () => {
      <div><label>&nbsp;</label><label style="display:flex;gap:6px;align-items:center;color:var(--ink)"><input id="nDbl" type="checkbox">حصة مزدوجة</label></div>
      <div><label>&nbsp;</label><button class="btn" id="addS">إضافة</button></div>
    </div>
-   <div class="scroll"><table class="t"><tr><th>#</th><th>المادة / القسم</th><th>الاختصار</th><th>النصاب الأسبوعي</th><th>مزدوجة</th><th>تُدرّس للصفوف</th><th></th></tr>
+   <div class="scroll"><table class="t"><tr><th>#</th><th>المادة / القسم</th><th>الاختصار</th><th>النصاب الأسبوعي</th><th>مزدوجة</th><th>اللون</th><th>أقصى/يوم</th><th>حصص ممنوعة</th><th>تُدرّس للصفوف</th><th></th></tr>
    ${S.subjects.map((s, i) => `<tr><td>${i + 1}</td><td><input data-i="${i}" data-k="name" value="${esc(s.name)}"></td><td><input data-i="${i}" data-k="short" value="${esc(s.short)}" style="width:90px"></td>
      <td><input type="number" data-i="${i}" data-k="load" value="${s.load}" style="width:70px"></td>
      <td><input type="checkbox" data-i="${i}" data-k="double" ${s.double ? 'checked' : ''}></td>
+     <td><input type="color" data-i="${i}" data-k="color" value="${s.color || '#cfe8ff'}" style="width:44px;padding:2px;height:32px"></td>
+     <td><input type="number" min="0" data-i="${i}" data-k="maxDay" value="${s.maxDay || ''}" placeholder="تلقائي" style="width:70px"></td>
+     <td style="white-space:nowrap">${Array.from({ length: P() }, (_, p) => `<label title="الحصة ${ORD[p]}" style="display:inline-flex;flex-direction:column;align-items:center;font-size:11px;color:var(--ink)"><input type="checkbox" data-np="${i}" value="${p}" ${(s.noP || []).includes(p) ? 'checked' : ''}>${p + 1}</label>`).join('')}</td>
      <td>${S.school.grades.map(g => `<label style="display:inline-flex;gap:3px;color:var(--ink)"><input type="checkbox" data-gr="${i}" value="${g.g}" ${!s.grades || s.grades.includes(+g.g) ? 'checked' : ''}>${g.g}</label>`).join(' ')}</td>
      <td><button class="btn o s" data-up="${i}">↑</button> <button class="btn r s" data-rm="${i}">حذف</button></td></tr>`).join('')}
    </table></div>
    <p class="${total > cap ? 'bad' : 'mute'}">مجموع الحصص للفصل الواحد: ${total} من ${cap} حصة متاحة أسبوعياً${total > cap ? ' — يتجاوز المتاح!' : ''}</p>
-   <p class="mute">"مزدوجة": تُوضع حصتان متتاليتان مرة في الأسبوع (مثل الحاسوب والفنية)، والباقي حصص مفردة.</p>
+   <p class="mute">"أقصى/يوم": أكبر عدد حصص للمادة في اليوم للفصل. "حصص ممنوعة": حصص لا تُوضع فيها المادة (مثلاً البدنية لا تكون في الأولى). "مزدوجة": تُوضع حصتان متتاليتان مرة في الأسبوع (مثل الحاسوب والفنية)، والباقي حصص مفردة.</p>
   </div>${nextBtn('teachers')}`;
   $('#addS').onclick = () => {
     const name = $('#nName').value.trim(); if (!name) return toast('اكتب اسم المادة');
-    S.subjects.push({ id: uid(), name, short: $('#nShort').value.trim() || name, load: +$('#nLoad').value || 1, double: $('#nDbl').checked, grades: null });
+    S.subjects.push({ id: uid(), name, short: $('#nShort').value.trim() || name, load: +$('#nLoad').value || 1, double: $('#nDbl').checked, grades: null, color: PALETTE[S.subjects.length % PALETTE.length] });syncCards();
     save(); render(); $('#nName').focus();
   };
-  $('#main').querySelectorAll('[data-k]').forEach(i => i.onchange = e => { const s = S.subjects[+i.dataset.i], k = i.dataset.k; s[k] = k === 'double' ? e.target.checked : k === 'load' ? +e.target.value : e.target.value; save(); render(); });
+  $('#main').querySelectorAll('[data-k]').forEach(i => i.onchange = e => { const s = S.subjects[+i.dataset.i], k = i.dataset.k; s[k] = k === 'double' ? e.target.checked : (k === 'load' || k === 'maxDay') ? +e.target.value : e.target.value; if (k !== 'color') syncCards(); save(); render(); });
+  $('#main').querySelectorAll('[data-np]').forEach(i => i.onchange = () => { const s = S.subjects[+i.dataset.np]; s.noP = [...$('#main').querySelectorAll(`[data-np="${i.dataset.np}"]:checked`)].map(x => +x.value); save(); });
   $('#main').querySelectorAll('[data-gr]').forEach(i => i.onchange = () => { const s = S.subjects[+i.dataset.gr]; s.grades = [...$('#main').querySelectorAll(`[data-gr="${i.dataset.gr}"]:checked`)].map(x => +x.value); save(); });
   $('#main').querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { if (!confirm('حذف المادة؟')) return; const s = S.subjects.splice(+b.dataset.rm, 1)[0]; S.cards = S.cards.filter(c => c.sub !== s.id); save(); render(); });
   $('#main').querySelectorAll('[data-up]').forEach(b => b.onclick = () => { const i = +b.dataset.up; if (i > 0) { [S.subjects[i - 1], S.subjects[i]] = [S.subjects[i], S.subjects[i - 1]]; save(); render(); } });
@@ -125,13 +136,13 @@ VIEWS.teachers = () => {
      <div><label>&nbsp;</label><button class="btn" id="addT">إضافة</button></div>
    </div>
    ${!S.subjects.length ? '<p class="warn">أضف المواد أولاً من تبويب المواد.</p>' : ''}
-   <div class="scroll"><table class="t"><tr><th>#</th><th>اسم المعلم</th><th>القسم</th>${gs.map(g => `<th>صف ${g}</th>`).join('')}<th>النصاب</th><th></th></tr>
+   <div class="scroll"><table class="t"><tr><th>#</th><th>اسم المعلم</th><th>القسم</th>${gs.map(g => `<th>صف ${g}</th>`).join('')}<th>النصاب</th><th>أقصى/يوم</th><th></th></tr>
    ${S.subjects.flatMap(s => S.teachers.filter(t => t.sub === s.id)).concat(S.teachers.filter(t => !sub(t.sub))).map((t, i) => {
     const load = S.cards.filter(c => c.teachers.includes(t.id)).reduce((a, c) => a + c.len, 0);
     return `<tr><td>${i + 1}</td><td><input data-t="${t.id}" data-k="name" value="${esc(t.name)}"></td>
-     <td><select data-t="${t.id}" data-k="sub">${S.subjects.map(s => `<option value="${s.id}" ${s.id === t.sub ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></td>
+     <td style="background:${subColor(t.sub)}"><select data-t="${t.id}" data-k="sub">${S.subjects.map(s => `<option value="${s.id}" ${s.id === t.sub ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></td>
      ${gs.map(g => `<td><input type="number" min="0" data-t="${t.id}" data-g="${g}" value="${t.counts[g] || 0}" style="width:60px"></td>`).join('')}
-     <td>${load}</td>
+     <td>${load}</td><td><input type="number" min="0" data-t="${t.id}" data-k="maxDay" value="${t.maxDay || ''}" placeholder="—" style="width:60px"></td>
      <td class="row" style="justify-content:center"><button class="btn o s" data-av="${t.id}">أوقات غير متاحة${t.unav?.length ? ' (' + t.unav.length + ')' : ''}</button><button class="btn r s" data-rm="${t.id}">حذف</button></td></tr>`;
   }).join('')}
    </table></div></div>${nextBtn('assign')}`;
@@ -143,7 +154,7 @@ VIEWS.teachers = () => {
   };
   $('#main').querySelectorAll('[data-t]').forEach(i => i.onchange = e => {
     const t = tch(i.dataset.t);
-    if (i.dataset.g) t.counts[i.dataset.g] = +e.target.value; else t[i.dataset.k] = e.target.value;
+    if (i.dataset.g) t.counts[i.dataset.g] = +e.target.value; else t[i.dataset.k] = i.dataset.k === 'maxDay' ? +e.target.value : e.target.value;
     if (i.dataset.g || i.dataset.k === 'sub') autoAssign();
     save(); render();
   });
@@ -195,7 +206,7 @@ async function importTeachers(f) {
     XLSX.utils.sheet_to_json(wb.Sheets[subSheet], { header: 1 }).slice(1).forEach(r => {
       const name = String(r[0] || '').trim(); if (!name) return;
       let s = S.subjects.find(x => x.name === name);
-      if (!s) { s = { id: uid(), name, grades: null }; S.subjects.push(s); addedS++; }
+      if (!s) { s = { id: uid(), name, grades: null, color: PALETTE[S.subjects.length % PALETTE.length] }; S.subjects.push(s); addedS++; }
       s.short = String(r[1] || s.short || name).trim(); s.load = +r[2] || s.load || 1; s.double = /نعم|yes|1/i.test(String(r[3] || ''));
     });
   }
@@ -207,7 +218,7 @@ async function importTeachers(f) {
     const name = String(r[0] || '').trim(); if (!name) return;
     const sname = String(r[1] || '').trim();
     let s = S.subjects.find(x => x.name === sname || x.short === sname);
-    if (!s && sname) { s = { id: uid(), name: sname, short: sname, load: 1, double: false, grades: null }; S.subjects.push(s); addedS++; }
+    if (!s && sname) { s = { id: uid(), name: sname, short: sname, load: 1, double: false, grades: null, color: PALETTE[S.subjects.length % PALETTE.length] }; S.subjects.push(s); addedS++; }
     let t = S.teachers.find(x => x.name === name);
     if (!t) { t = { id: uid(), name, counts: {}, unav: [] }; S.teachers.push(t); addedT++; }
     t.sub = s?.id || t.sub; t.fixed = t.fixed || {};
@@ -271,7 +282,7 @@ VIEWS.assign = () => {
    <p class="mute">يُوزَّع تلقائياً حسب أعداد كل معلم. يمكنك تغيير المعلم أو إضافة <b>معلم ثانٍ لنفس الفصل</b> (حصة مشتركة). التعديل اليدوي يُقفل الخانة 🔒 فلا يغيّرها التوزيع التلقائي.</p>
    <div class="row" style="margin-bottom:8px"><button class="btn o s" id="reAuto">إعادة التوزيع التلقائي (للخانات غير المقفلة)</button><button class="btn o s" id="unlockAll">فك قفل الكل</button></div>
    <div class="scroll"><table class="t"><tr><th>المادة</th>${cl.map(c => `<th>${c}</th>`).join('')}</tr>
-   ${S.subjects.map(s => `<tr><th>${esc(s.short || s.name)}</th>${cl.map(c => {
+   ${S.subjects.map(s => `<tr><th style="background:${s.color}">${esc(s.short || s.name)}</th>${cl.map(c => {
     if (!subjGrades(s).includes(+gradeOf(c))) return '<td class="mute">—</td>';
     const a = S.assign[akey(c, s.id)] || []; if (!a.length) prob.push(`${s.name} ${c}`);
     const lk = S.assignLock?.[akey(c, s.id)];
@@ -296,64 +307,157 @@ VIEWS.assign = () => {
   });
 };
 
+/* ===================== القاعات ===================== */
+VIEWS.rooms = () => {
+  $('#main').innerHTML = `<div class="card"><h2>القاعات الخاصة (مختبر، حاسوب، صالة، مرسم...)</h2>
+   <p class="mute">المواد المرتبطة بقاعة لا تُوضع في حصة تكون فيها كل قاعاتها مشغولة. المواد بدون قاعة تُدرّس في فصلها.</p>
+   <div class="row" style="margin-bottom:10px"><div style="flex:1;min-width:180px"><label>اسم القاعة</label><input id="rName" placeholder="مختبر الحاسوب 1"></div><div><label>&nbsp;</label><button class="btn" id="addR">إضافة قاعة</button></div></div>
+   <div class="scroll"><table class="t"><tr><th>القاعة</th><th>المواد التي تُدرّس فيها</th><th>الاستخدام</th><th></th></tr>
+   ${S.rooms.map(r => `<tr><td><input data-r="${r.id}" value="${esc(r.name)}"></td><td style="text-align:right">${S.subjects.map(s => `<label style="display:inline-flex;gap:3px;margin:2px 6px;color:var(--ink);background:${s.color};padding:2px 6px;border-radius:6px"><input type="checkbox" data-rs="${r.id}" value="${s.id}" ${r.subs.includes(s.id) ? 'checked' : ''}>${esc(s.short || s.name)}</label>`).join('')}</td>
+   <td>${S.cards.filter(c => c.room === r.id && c.d != null).reduce((a, c) => a + c.len, 0)} / ${5 * P()}</td><td><button class="btn r s" data-rr="${r.id}">حذف</button></td></tr>`).join('') || '<tr><td colspan="4" class="mute">لا توجد قاعات خاصة</td></tr>'}
+   </table></div></div>${nextBtn('assign')}`;
+  $('#addR').onclick = () => { const n = $('#rName').value.trim(); if (!n) return toast('اكتب اسم القاعة'); S.rooms.push({ id: uid(), name: n, subs: [] }); save(); render(); };
+  $('#main').querySelectorAll('[data-r]').forEach(i => i.onchange = e => { S.rooms.find(r => r.id === i.dataset.r).name = e.target.value; save(); });
+  $('#main').querySelectorAll('[data-rs]').forEach(i => i.onchange = () => { const r = S.rooms.find(r => r.id === i.dataset.rs); r.subs = [...$('#main').querySelectorAll(`[data-rs="${r.id}"]:checked`)].map(x => x.value); save(); });
+  $('#main').querySelectorAll('[data-rr]').forEach(b => b.onclick = () => { if (!confirm('حذف القاعة؟')) return; S.rooms = S.rooms.filter(r => r.id !== b.dataset.rr); S.cards.forEach(c => { if (c.room === b.dataset.rr) c.room = null; }); save(); render(); });
+};
+const roomsFor = sid => S.rooms.filter(r => r.subs.includes(sid)).map(r => r.id);
+
+/* ===================== القواعد والفحص ===================== */
+function checkData() {
+  const out = [], cap = 5 * P();
+  if (!S.subjects.length) out.push(['bad', 'لا توجد مواد']);
+  if (!S.teachers.length) out.push(['bad', 'لا يوجد معلمون']);
+  for (const c of classes()) { const n = S.cards.filter(x => x.cls === c).reduce((a, x) => a + x.len, 0); if (n > cap) out.push(['bad', `الفصل ${c}: ${n} حصة أكبر من المتاح ${cap}`]); }
+  for (const t of S.teachers) {
+    const n = S.cards.filter(x => x.teachers.includes(t.id)).reduce((a, x) => a + x.len, 0);
+    const av = cap - (t.unav?.length || 0); const md = t.maxDay ? t.maxDay * 5 : cap;
+    if (n > Math.min(av, md)) out.push(['bad', `${t.name}: نصابه ${n} حصة والمتاح له ${Math.min(av, md)} فقط`]);
+  }
+  for (const s of S.subjects) {
+    const allowed = P() - (s.noP || []).length;
+    if (s.maxDay && s.maxDay * 5 < s.load) out.push(['bad', `${s.name}: النصاب ${s.load} لا يكفيه أقصى ${s.maxDay} في اليوم`]);
+    if (allowed * 5 < s.load) out.push(['bad', `${s.name}: الحصص الممنوعة كثيرة`]);
+    const rs = roomsFor(s.id); if (rs.length) { const need = S.cards.filter(c => c.sub === s.id).reduce((a, c) => a + c.len, 0); if (need > rs.length * cap) out.push(['bad', `${s.name}: يحتاج ${need} حصة في القاعات المتاحة ${rs.length * cap}`]); }
+  }
+  const noT = S.cards.filter(c => !c.teachers.length); if (noT.length) out.push(['warn', `${noT.length} حصة بدون معلم (لن تُوضع) — راجع التوزيع`]);
+  if (!out.length) out.push(['ok', 'البيانات سليمة وجاهزة للتوليد']);
+  return out;
+}
+VIEWS.rules = () => {
+  const R = S.rules;
+  $('#main').innerHTML = `<div class="card"><h2>القواعد المفعّلة في التوزيع التلقائي</h2>
+   <table class="t" style="text-align:right">
+   <tr><td>✔ لا يدرّس المعلم فصلين في نفس الحصة</td><td class="ok">إلزامي</td></tr>
+   <tr><td>✔ لا يوجد للفصل حصتان في نفس الوقت</td><td class="ok">إلزامي</td></tr>
+   <tr><td>✔ الحصة المشتركة (معلمان) تُوضع حين يكون الاثنان متفرغين</td><td class="ok">إلزامي</td></tr>
+   <tr><td>✔ الحصص المزدوجة متتالية</td><td class="ok">إلزامي</td></tr>
+   <tr><td>✔ احترام الأوقات غير المتاحة للمعلم</td><td class="ok">إلزامي</td></tr>
+   <tr><td>✔ أقصى عدد حصص للمعلم في اليوم</td><td class="ok">إلزامي (إن حُدّد)</td></tr>
+   <tr><td>✔ أقصى عدد حصص للمادة في اليوم، والحصص الممنوعة للمادة</td><td class="ok">إلزامي</td></tr>
+   <tr><td>✔ توفر القاعة الخاصة</td><td class="ok">إلزامي</td></tr>
+   <tr><td>✔ الحصص المقفلة لا تتحرك</td><td class="ok">إلزامي</td></tr>
+   <tr><td><label style="color:var(--ink)"><input type="checkbox" id="rSpread" ${R.spread ? 'checked' : ''}> توزيع المادة على أيام الأسبوع بالتساوي</label></td><td>تفضيل</td></tr>
+   <tr><td><label style="color:var(--ink)"><input type="checkbox" id="rGaps" ${R.gaps ? 'checked' : ''}> تقليل الفراغات في جدول المعلم</label></td><td>تفضيل</td></tr>
+   </table></div>
+   <div class="card"><h2>فحص البيانات قبل التوليد</h2>${checkData().map(([k, m]) => `<div class="${k}">${k === 'ok' ? '✓' : '⚠'} ${esc(m)}</div>`).join('')}</div>
+   <div class="card"><h2>إحصائيات الجدول</h2>${stats()}</div>${nextBtn('tt')}`;
+  $('#rSpread').onchange = e => { R.spread = e.target.checked; save(); };
+  $('#rGaps').onchange = e => { R.gaps = e.target.checked; save(); };
+};
+function stats() {
+  const rows = S.teachers.map(t => {
+    const cs = S.cards.filter(c => c.d != null && c.teachers.includes(t.id));
+    let gaps = 0; for (let d = 0; d < 5; d++) { const ps = cs.filter(c => c.d === d).flatMap(c => Array.from({ length: c.len }, (_, k) => c.p + k)).sort((a, b) => a - b); if (ps.length) gaps += ps[ps.length - 1] - ps[0] + 1 - ps.length; }
+    return [t, cs.reduce((a, c) => a + c.len, 0), gaps];
+  });
+  const tg = rows.reduce((a, r) => a + r[2], 0);
+  return `<p>إجمالي الفراغات لدى المعلمين: <b>${tg}</b> — الحصص الموضوعة: <b>${S.cards.filter(c => c.d != null).length}</b> من ${S.cards.length}</p>
+  <div class="scroll" style="max-height:300px;overflow:auto"><table class="t"><tr><th>المعلم</th><th>الحصص</th><th>الفراغات</th></tr>${rows.map(([t, n, g]) => `<tr><td style="text-align:right;border-right:6px solid ${subColor(t.sub)}">${esc(t.name)}</td><td>${n}</td><td class="${g > 4 ? 'warn' : ''}">${g}</td></tr>`).join('')}</table></div>`;
+}
+
 /* ===================== 5) المولّد ===================== */
 function generate(keepPlaced) {
   syncCards();
-  const D = 5, PP = P();
-  const cards = S.cards;
-  const clsOcc = {}, tOcc = {};
-  const cell = (m, k) => m[k] || (m[k] = Array.from({ length: D }, () => Array(PP).fill(-1)));
+  const D = 5, PP = P(), cards = S.cards, R = S.rules;
+  const occ = {}; const cell = k => occ[k] || (occ[k] = Array.from({ length: D }, () => Array(PP).fill(-1)));
   const unav = {}; S.teachers.forEach(t => unav[t.id] = new Set(t.unav || []));
-  const perDayMax = {}; // cls|sub -> max occurrences per day
+  const tMax = {}; S.teachers.forEach(t => tMax[t.id] = +t.maxDay || 99);
+  const tDay = {}; const tdk = (t, d) => t + '|' + d;
   const cnt = {}; cards.forEach(c => { const k = c.cls + '|' + c.sub; cnt[k] = (cnt[k] || 0) + 1; });
-  for (const k in cnt) perDayMax[k] = Math.ceil(cnt[k] / D);
+  const perDayMax = {}; for (const k in cnt) { const s = sub(k.split('|')[1]); perDayMax[k] = s?.maxDay ? Math.max(1, s.maxDay) : Math.ceil(cnt[k] / D); }
+  const subRooms = {}; S.subjects.forEach(s => subRooms[s.id] = roomsFor(s.id));
+  const noP = {}; S.subjects.forEach(s => noP[s.id] = new Set(s.noP || []));
   const dayCount = {}; const dk = (c, d) => c.cls + '|' + c.sub + '|' + d;
-  const put = (i, d, p) => { const c = cards[i]; c.d = d; c.p = p; for (let k = 0; k < c.len; k++) { cell(clsOcc, c.cls)[d][p + k] = i; c.teachers.forEach(t => cell(tOcc, t)[d][p + k] = i); } dayCount[dk(c, d)] = (dayCount[dk(c, d)] || 0) + 1; };
-  const take = i => { const c = cards[i]; if (c.d == null) return; for (let k = 0; k < c.len; k++) { cell(clsOcc, c.cls)[c.d][c.p + k] = -1; c.teachers.forEach(t => cell(tOcc, t)[c.d][c.p + k] = -1); } dayCount[dk(c, c.d)]--; c.d = c.p = null; };
-  // hard check ignoring occupancy -> returns conflicting card indexes or null if impossible
+  const put = (i, d, p, room) => { const c = cards[i]; c.d = d; c.p = p; c.room = room || null; for (let k = 0; k < c.len; k++) { cell('c' + c.cls)[d][p + k] = i; c.teachers.forEach(t => cell('t' + t)[d][p + k] = i); if (room) cell('r' + room)[d][p + k] = i; } c.teachers.forEach(t => tDay[tdk(t, d)] = (tDay[tdk(t, d)] || 0) + c.len); dayCount[dk(c, d)] = (dayCount[dk(c, d)] || 0) + 1; };
+  const take = i => { const c = cards[i]; if (c.d == null) return; for (let k = 0; k < c.len; k++) { cell('c' + c.cls)[c.d][c.p + k] = -1; c.teachers.forEach(t => cell('t' + t)[c.d][c.p + k] = -1); if (c.room) cell('r' + c.room)[c.d][c.p + k] = -1; } c.teachers.forEach(t => tDay[tdk(t, c.d)] -= c.len); dayCount[dk(c, c.d)]--; c.d = c.p = null; c.room = null; };
+  // يرجع [قائمة البطاقات المتعارضة، القاعة] أو null إن كان مستحيلاً
   const conflicts = (i, d, p) => {
     const c = cards[i]; if (p + c.len > PP) return null;
     const set = new Set();
     for (let k = 0; k < c.len; k++) {
-      for (const t of c.teachers) { if (unav[t]?.has(d + ':' + (p + k))) return null; const o = cell(tOcc, t)[d][p + k]; if (o >= 0) set.add(o); }
-      const o = cell(clsOcc, c.cls)[d][p + k]; if (o >= 0) set.add(o);
+      if (noP[c.sub]?.has(p + k)) return null;
+      for (const t of c.teachers) { if (unav[t]?.has(d + ':' + (p + k))) return null; const o = cell('t' + t)[d][p + k]; if (o >= 0) set.add(o); }
+      const o = cell('c' + c.cls)[d][p + k]; if (o >= 0) set.add(o);
     }
-    if ((dayCount[dk(c, d)] || 0) >= perDayMax[c.cls + '|' + c.sub]) {
-      // نفس المادة في نفس اليوم: أضف البطاقات المتعارضة
-      cards.forEach((o, j) => { if (j !== i && o.d === d && o.cls === c.cls && o.sub === c.sub) set.add(j); });
+    for (const t of c.teachers) if ((tDay[tdk(t, d)] || 0) + c.len > tMax[t]) {
+      // أزح حصص المعلم الأخرى في هذا اليوم إن لزم
+      let over = (tDay[tdk(t, d)] || 0) + c.len - tMax[t];
+      for (const [j, o] of cards.entries()) { if (over <= 0) break; if (j !== i && o.d === d && o.teachers.includes(t) && !set.has(j)) { set.add(j); over -= o.len; } }
+    }
+    if ((dayCount[dk(c, d)] || 0) >= perDayMax[c.cls + '|' + c.sub]) cards.forEach((o, j) => { if (j !== i && o.d === d && o.cls === c.cls && o.sub === c.sub) set.add(j); });
+    let room = null; const rs = subRooms[c.sub];
+    if (rs.length) {
+      let best = null;
+      for (const r of rs) { const occs = new Set(); for (let k = 0; k < c.len; k++) { const o = cell('r' + r)[d][p + k]; if (o >= 0) occs.add(o); } if (!best || occs.size < best[1].size) best = [r, occs]; if (!occs.size) break; }
+      room = best[0]; best[1].forEach(j => set.add(j));
     }
     for (const j of set) if (cards[j].locked) return null;
-    return [...set];
+    return [[...set], room];
   };
-  // ابدأ
-  cards.forEach((c, i) => { const d = c.d, p = c.p; c.d = c.p = null; if ((c.locked || keepPlaced) && d != null && p != null && p + c.len <= PP) { const cf = conflicts(i, d, p); if (cf && !cf.length) put(i, d, p); } });
-  const diff = i => { const c = cards[i]; return c.len * 10 + c.teachers.reduce((a, t) => a + cards.filter(x => x.teachers.includes(t)).length, 0) / 5 + (c.teachers.length > 1 ? 30 : 0); };
+  const gapCost = (c, d, p) => {
+    if (!R.gaps) return 0; let sc = 0;
+    for (const t of c.teachers) { const row = cell('t' + t)[d]; const has = row.some(x => x >= 0); if (!has) continue; const adj = (p > 0 && row[p - 1] >= 0) || (p + c.len < PP && row[p + c.len] >= 0); if (!adj) sc += 6; }
+    return sc;
+  };
+  cards.forEach((c, i) => { const d = c.d, p = c.p; c.d = c.p = null; c.room = null; if ((c.locked || keepPlaced) && d != null && p != null && p + c.len <= PP) { const cf = conflicts(i, d, p); if (cf && !cf[0].length) put(i, d, p, cf[1]); } });
+  const tLoad = {}; cards.forEach(c => c.teachers.forEach(t => tLoad[t] = (tLoad[t] || 0) + c.len));
+  const diff = i => { const c = cards[i]; return c.len * 10 + c.teachers.reduce((a, t) => a + tLoad[t], 0) / 3 + (c.teachers.length > 1 ? 30 : 0) + (subRooms[c.sub].length ? 20 : 0) + (noP[c.sub].size * 3); };
   let queue = cards.map((_, i) => i).filter(i => cards[i].d == null && cards[i].teachers.length).sort((a, b) => diff(b) - diff(a));
   const t0 = Date.now(); let iter = 0; const tabu = new Map();
-  while (queue.length && Date.now() - t0 < 8000) {
+  while (queue.length && Date.now() - t0 < 15000) {
     iter++;
     const i = queue.shift(); const c = cards[i];
     let best = null, bestScore = 1e9;
     for (let d = 0; d < D; d++) for (let p = 0; p + c.len <= PP; p++) {
       const cf = conflicts(i, d, p); if (!cf) continue;
-      let sc = cf.length * 100 + Math.random() * 8;
-      for (const j of cf) if (tabu.get(j + ':' + d + ':' + p) > iter) sc += 500;
-      // تفضيل الحصص المزدوجة ضمن نفس الفترة وتوزيع المواد على الأيام
-      sc += (dayCount[dk(c, d)] || 0) * 20;
+      let sc = cf[0].length * 100 + Math.random() * 10;
+      for (const j of cf[0]) if (tabu.get(i + ':' + j) > iter) sc += 400;
+      if (R.spread) sc += (dayCount[dk(c, d)] || 0) * 25;
+      sc += gapCost(c, d, p);
       if (sc < bestScore) { bestScore = sc; best = [d, p, cf]; }
     }
-    if (!best) continue; // مستحيل (قيود)
-    const [d, p, cf] = best;
-    cf.forEach(j => { tabu.set(i + ':' + cards[j].d + ':' + cards[j].p, iter + 15); take(j); queue.push(j); });
-    put(i, d, p);
+    if (!best) continue;
+    const [d, p, [cf, room]] = best;
+    cf.forEach(j => { tabu.set(j + ':' + i, iter + 20); take(j); queue.push(j); });
+    put(i, d, p, room);
   }
-  const un = cards.filter(c => c.d == null).length;
+  // تحسين: تقليل فراغات المعلمين بنقل الحصص إلى خانات فارغة أفضل
+  if (R.gaps && !queue.length) {
+    for (let pass = 0; pass < 3; pass++) cards.forEach((c, i) => {
+      if (c.locked || c.d == null) return;
+      const od = c.d, op = c.p, oroom = c.room; take(i);
+      let best = [od, op, oroom], bs = gapCost(c, od, op) + (R.spread ? (dayCount[dk(c, od)] || 0) * 25 : 0) - 0.5;
+      for (let d = 0; d < D; d++) for (let p = 0; p + c.len <= PP; p++) { const cf = conflicts(i, d, p); if (!cf || cf[0].length) continue; const sc = gapCost(c, d, p) + (R.spread ? (dayCount[dk(c, d)] || 0) * 25 : 0); if (sc < bs) { bs = sc; best = [d, p, cf[1]]; } }
+      put(i, ...best);
+    });
+  }
   save();
-  return { un, noT: cards.filter(c => !c.teachers.length).length, ms: Date.now() - t0 };
+  return { un: cards.filter(c => c.d == null && c.teachers.length).length, noT: cards.filter(c => !c.teachers.length).length, ms: Date.now() - t0 };
 }
 
 /* ===================== 6) الجدول والتعديل اليدوي ===================== */
-let ttView = 'class', ttSel = null, selCard = null;
+let ttView = 'mclass', ttSel = null, selCard = null, dragCard = null;
 function occMaps() {
   const cls = {}, t = {};
   S.cards.forEach(c => { if (c.d == null) return; for (let k = 0; k < c.len; k++) { (cls[c.cls + '|' + c.d + '|' + (c.p + k)] ||= []).push(c); c.teachers.forEach(x => (t[x + '|' + c.d + '|' + (c.p + k)] ||= []).push(c)); } });
@@ -361,71 +465,114 @@ function occMaps() {
 }
 function canMove(card, d, p, ignore = []) {
   if (p + card.len > P() || p < 0) return 'خارج عدد الحصص';
+  const s = sub(card.sub);
+  for (let k = 0; k < card.len; k++) if ((s?.noP || []).includes(p + k)) return `${s.name} ممنوعة في الحصة ${ORD[p + k]}`;
+  const others = S.cards.filter(o => o !== card && !ignore.includes(o) && o.d === d);
   for (let k = 0; k < card.len; k++) {
-    for (const o of S.cards) {
-      if (o === card || ignore.includes(o) || o.d !== d) continue;
-      if (p + k >= o.p && p + k < o.p + o.len) {
-        if (o.cls === card.cls) return `الفصل ${o.cls} مشغول`;
-        const t = o.teachers.find(x => card.teachers.includes(x)); if (t) return `${tch(t).name} لديه حصة في ${o.cls}`;
-      }
+    for (const o of others) if (p + k >= o.p && p + k < o.p + o.len) {
+      if (o.cls === card.cls) return `الفصل ${o.cls} مشغول`;
+      const t = o.teachers.find(x => card.teachers.includes(x)); if (t) return `${tch(t).name} لديه حصة في ${o.cls}`;
     }
     for (const t of card.teachers) if (tch(t)?.unav?.includes(d + ':' + (p + k))) return `${tch(t).name} غير متاح`;
   }
+  for (const t of card.teachers) { const m = +tch(t)?.maxDay; if (m && others.filter(o => o.teachers.includes(t)).reduce((a, o) => a + o.len, 0) + card.len > m) return `${tch(t).name} تجاوز أقصى ${m} حصص في اليوم`; }
+  const mx = s?.maxDay || Math.ceil(S.cards.filter(o => o.cls === card.cls && o.sub === card.sub).length / 5);
+  if (others.filter(o => o.cls === card.cls && o.sub === card.sub).length >= mx) return `${s.name} وصلت الحد الأقصى في هذا اليوم`;
+  const rs = roomsFor(card.sub);
+  if (rs.length) { const free = rs.find(r => !others.some(o => o.room === r && p < o.p + o.len && o.p < p + card.len)); if (!free) return 'لا توجد قاعة متاحة'; card._room = free; }
   return '';
 }
+function moveCard(card, d, p) {
+  const tgt = S.cards.filter(o => o !== card && o.d === d && o.cls === card.cls && p < o.p + o.len && o.p < p + card.len);
+  if (card.locked) return toast('الحصة مقفلة');
+  if (!tgt.length) {
+    const err = canMove(card, d, p); if (err) return toast('لا يمكن: ' + err);
+    snap(); card.d = d; card.p = p; card.room = card._room || null; save(); return true;
+  }
+  if (tgt.length > 1 || tgt[0].locked || card.d == null || tgt[0].len !== card.len) return toast(card.d == null ? 'اختر خانة فارغة للحصة غير الموضوعة' : 'لا يمكن التبديل مع هذه الحصة');
+  const c = tgt[0], a = { d: card.d, p: card.p }, b = { d: c.d, p: c.p };
+  const e1 = canMove(card, b.d, b.p, [c]); const r1 = card._room; const e2 = canMove(c, a.d, a.p, [card]); const r2 = c._room;
+  if (e1 || e2) return toast('لا يمكن التبديل: ' + (e1 || e2));
+  snap(); card.d = b.d; card.p = b.p; card.room = r1 || null; c.d = a.d; c.p = a.p; c.room = r2 || null; save(); return true;
+}
+const cardHtml = (c, mode) => `<div class="cardx" draggable="${c.locked ? 'false' : 'true'}" data-cid="${c.id}" style="background:${subColor(c.sub)}">${esc(subShort(c.sub))}${mode === 'cls' ? '' : `<small>${mode === 'teacher' ? c.cls : c.teachers.map(t => esc(tch(t)?.name.split(' ')[0])).join('+')}</small>`}</div>`;
 VIEWS.tt = () => {
   const placed = S.cards.filter(c => c.d != null).length, un = S.cards.filter(c => c.d == null && c.teachers.length);
-  const list = ttView === 'class' ? classes().map(c => [c, c]) : S.teachers.map(t => [t.id, t.name]);
+  const master = ttView[0] === 'm';
+  const byTeacher = ttView.endsWith('teacher');
+  const list = byTeacher ? S.subjects.flatMap(s => S.teachers.filter(t => t.sub === s.id)).map(t => [t.id, t.name]) : classes().map(c => [c, c]);
   if (!ttSel || !list.find(x => x[0] === ttSel)) ttSel = list[0]?.[0];
   const om = occMaps();
-  const cellCards = (d, p) => ttView === 'class' ? (om.cls[ttSel + '|' + d + '|' + p] || []) : (om.t[ttSel + '|' + d + '|' + p] || []);
+  const cellOf = (key, d, p) => byTeacher ? (om.t[key + '|' + d + '|' + p] || []) : (om.cls[key + '|' + d + '|' + p] || []);
+  const td = (key, d, p, mode) => {
+    const cs = cellOf(key, d, p), c = cs[0];
+    const una = byTeacher && tch(key)?.unav?.includes(d + ':' + p);
+    return `<td class="cell ${c && c === selCard ? 'sel' : ''} ${c?.locked ? 'lock' : ''} ${una ? 'unav' : ''} ${cs.length > 1 ? 'clash' : ''} ${p === P() - 1 ? 'dend' : ''}" data-k="${key}" data-d="${d}" data-p="${p}">${c ? cardHtml(c, mode) : ''}</td>`;
+  };
+  let grid;
+  if (master) {
+    grid = `<table class="t tt master"><thead><tr><th rowspan="2" class="stick">${byTeacher ? 'المعلم' : 'الفصل'}</th>${DAYS.map(d => `<th colspan="${P()}" class="dend">${d}</th>`).join('')}</tr><tr>${DAYS.map(() => Array.from({ length: P() }, (_, p) => `<th class="${p === P() - 1 ? 'dend' : ''}">${p + 1}</th>`).join('')).join('')}</tr></thead>
+    <tbody>${list.map(([k, v]) => `<tr><th class="stick" style="${byTeacher ? `border-right:6px solid ${subColor(tch(k).sub)}` : ''}">${esc(v)}</th>${DAYS.map((_, d) => Array.from({ length: P() }, (_, p) => td(k, d, p, byTeacher ? 'teacher' : 'cls')).join('')).join('')}</tr>`).join('')}</tbody></table>`;
+  } else {
+    grid = `<table class="t tt"><tr><th></th>${Array.from({ length: P() }, (_, p) => `<th>${ORD[p]}</th>`).join('')}</tr>
+    ${DAYS.map((dn, d) => `<tr><th>${dn}</th>${Array.from({ length: P() }, (_, p) => td(ttSel, d, p, byTeacher ? 'teacher' : 'class')).join('')}</tr>`).join('')}</table>`;
+  }
   $('#main').innerHTML = `
-  <div class="card"><h2>توليد الجدول</h2>
-   <div class="row"><button class="btn" id="gen">⚙ توليد الجدول تلقائياً</button><button class="btn o" id="gen2">إكمال الجدول (الإبقاء على الحالي)</button><button class="btn o" id="clr">مسح غير المقفل</button>
-   <span class="mute">الموضوع: ${placed} من ${S.cards.length} بطاقة${un.length ? ` — <span class="warn">${un.length} غير موضوعة</span>` : ''}</span></div>
+  <div class="ribbon">
+   <button class="rb" id="gen"><b>⚙</b>توليد</button>
+   <button class="rb" id="gen2"><b>➕</b>إكمال</button>
+   <button class="rb" id="und"><b>↶</b>تراجع</button>
+   <button class="rb" id="clr"><b>🗑</b>مسح غير المقفل</button>
+   <button class="rb" id="lockAll"><b>🔒</b>قفل الكل</button>
+   <button class="rb" id="unlockAll2"><b>🔓</b>فك الكل</button>
+   <span class="sep"></span>
+   <select id="vw"><option value="mclass">كل الفصول</option><option value="mteacher">كل المعلمين</option><option value="class">فصل واحد</option><option value="teacher">معلم واحد</option></select>
+   ${master ? '' : `<select id="who">${list.map(([k, v]) => `<option value="${k}" ${k === ttSel ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>`}
+   <span class="sep"></span>
+   <span class="mute">${placed}/${S.cards.length} موضوعة${un.length ? ` · <b class="warn">${un.length} غير موضوعة</b>` : ' · <b class="ok">مكتمل</b>'}</span>
   </div>
-  <div class="card">
-   <div class="row" style="margin-bottom:10px">
-    <select id="vw" style="width:auto"><option value="class" ${ttView === 'class' ? 'selected' : ''}>عرض حسب الفصل</option><option value="teacher" ${ttView === 'teacher' ? 'selected' : ''}>عرض حسب المعلم</option></select>
-    <select id="who" style="width:auto;min-width:180px">${list.map(([k, v]) => `<option value="${k}" ${k === ttSel ? 'selected' : ''}>${esc(v)}</option>`).join('')}</select>
-    ${selCard ? `<span class="pill">محدد: ${esc(subShort(selCard.sub))} ${selCard.cls}</span><button class="btn o s" id="lk">${selCard.locked ? 'فك القفل' : '🔒 قفل'}</button><button class="btn o s" id="rmv">إزالة من الجدول</button><button class="btn o s" id="cs">إلغاء التحديد</button>` : '<span class="mute">اضغط على حصة ثم على خانة أخرى لنقلها أو تبديلها.</span>'}
-   </div>
-   <div class="scroll"><table class="t tt"><tr><th></th>${Array.from({ length: P() }, (_, p) => `<th>${ORD[p]}</th>`).join('')}</tr>
-   ${DAYS.map((dn, d) => `<tr><th>${dn}</th>${Array.from({ length: P() }, (_, p) => {
-    const cs = cellCards(d, p); const c = cs[0];
-    const un = ttView === 'teacher' && tch(ttSel)?.unav?.includes(d + ':' + p);
-    return `<td class="cell ${c && c === selCard ? 'sel' : ''} ${c?.locked ? 'lock' : ''} ${un ? 'unav' : ''} ${cs.length > 1 ? 'bad' : ''}" data-d="${d}" data-p="${p}">${c ? `${esc(subShort(c.sub))}<small>${ttView === 'class' ? c.teachers.map(t => esc(tch(t)?.name.split(' ')[0])).join(' + ') : c.cls}</small>` : ''}</td>`;
-  }).join('')}</tr>`).join('')}
-   </table></div>
-   ${un.length ? `<h3 style="font-size:15px">حصص غير موضوعة (اضغط لتحديدها ثم اختر خانة فارغة)</h3><div class="chips">${un.map(c => `<span data-u="${c.id}" style="cursor:pointer;${c === selCard ? 'background:var(--sel)' : ''}">${esc(subShort(c.sub))} ${c.cls}${c.len > 1 ? ' (مزدوجة)' : ''}</span>`).join('')}</div>` : ''}
+  ${selCard ? `<div class="selbar"><span class="pill" style="background:${subColor(selCard.sub)}">${esc(sub(selCard.sub)?.name)} — ${selCard.cls} — ${selCard.teachers.map(t => esc(tch(t)?.name)).join(' + ')}${selCard.room ? ' — ' + esc(S.rooms.find(r => r.id === selCard.room)?.name) : ''}</span><button class="btn o s" id="lk">${selCard.locked ? '🔓 فك القفل' : '🔒 قفل'}</button><button class="btn o s" id="rmv">إزالة من الجدول</button><button class="btn o s" id="cs">إلغاء التحديد</button></div>` : ''}
+  <div class="legend">${S.subjects.map(s => `<span style="background:${s.color}">${esc(s.short || s.name)}</span>`).join('')}</div>
+  <div class="gridwrap">${grid}</div>
+  <div class="card" style="margin-top:12px"><h2>الحصص غير الموضوعة ${un.length ? `(${un.length})` : ''}</h2>
+   ${un.length ? `<div class="chips">${un.map(c => `<span class="cardx" draggable="true" data-cid="${c.id}" style="background:${subColor(c.sub)};${c === selCard ? 'outline:2px solid #000' : ''}">${esc(subShort(c.sub))} ${c.cls}${c.len > 1 ? ' ×2' : ''}</span>`).join('')}</div><p class="mute">اسحبها إلى خانة فارغة، أو اضغط عليها ثم على الخانة.</p>` : '<p class="ok">✓ كل الحصص موضوعة</p>'}
    ${S.cards.some(c => !c.teachers.length) ? `<p class="warn">⚠ ${S.cards.filter(c => !c.teachers.length).length} حصة بدون معلم — راجع تبويب التوزيع</p>` : ''}
   </div>`;
-  const run = keep => { if (!S.cards.length) syncCards(); if (!S.cards.length) return toast('أدخل المواد والمعلمين أولاً'); $('#gen').disabled = true; $('#gen').textContent = 'جارٍ التوليد...'; setTimeout(() => { const r = generate(keep); selCard = null; render(); toast(r.un ? `تم مع ${r.un} حصة لم تُوضع — جرّب التوليد مرة أخرى أو خفّف القيود` : `✓ اكتمل الجدول خلال ${(r.ms / 1000).toFixed(1)} ث`, 5000); }, 30); };
+  $('#vw').value = ttView;
+  const run = keep => {
+    if (!S.cards.length) syncCards(); if (!S.cards.length) return toast('أدخل المواد والمعلمين أولاً');
+    const bad = checkData().filter(x => x[0] === 'bad'); if (bad.length && !confirm('توجد مشاكل في البيانات:\n' + bad.map(x => x[1]).join('\n') + '\n\nمتابعة التوليد؟')) return;
+    snap(); $('#gen').disabled = true; $('#gen').innerHTML = '<b>⏳</b>جارٍ...';
+    setTimeout(() => { const r = generate(keep); selCard = null; render(); toast(r.un ? `تم مع ${r.un} حصة لم تُوضع — اضغط "إكمال" أو راجع القواعد والفحص` : `✓ اكتمل الجدول خلال ${(r.ms / 1000).toFixed(1)} ث`, 5000); }, 30);
+  };
   $('#gen').onclick = () => { if (S.cards.some(c => c.d != null && !c.locked) && !confirm('سيُعاد توليد كل الحصص غير المقفلة. متابعة؟')) return; run(false); };
   $('#gen2').onclick = () => run(true);
-  $('#clr').onclick = () => { if (!confirm('مسح كل الحصص غير المقفلة؟')) return; S.cards.forEach(c => { if (!c.locked) c.d = c.p = null; }); save(); render(); };
+  $('#und').onclick = undo;
+  $('#clr').onclick = () => { if (!confirm('مسح كل الحصص غير المقفلة؟')) return; snap(); S.cards.forEach(c => { if (!c.locked) { c.d = c.p = null; c.room = null; } }); save(); render(); };
+  $('#lockAll').onclick = () => { S.cards.forEach(c => { if (c.d != null) c.locked = true; }); save(); render(); toast('تم قفل كل الحصص الموضوعة'); };
+  $('#unlockAll2').onclick = () => { S.cards.forEach(c => c.locked = false); save(); render(); };
   $('#vw').onchange = e => { ttView = e.target.value; ttSel = null; render(); };
-  $('#who').onchange = e => { ttSel = e.target.value; render(); };
-  if ($('#lk')) { $('#lk').onclick = () => { selCard.locked = !selCard.locked; save(); render(); }; $('#rmv').onclick = () => { selCard.d = selCard.p = null; selCard.locked = false; save(); render(); }; $('#cs').onclick = () => { selCard = null; render(); }; }
-  $('#main').querySelectorAll('[data-u]').forEach(s => s.onclick = () => { selCard = S.cards.find(c => c.id === s.dataset.u); render(); });
-  $('#main').querySelectorAll('td.cell').forEach(td => td.onclick = () => {
-    const d = +td.dataset.d, p = +td.dataset.p, c = cellCards(d, p)[0];
-    if (!selCard) { if (c) { selCard = c; render(); } return; }
-    if (c === selCard) { selCard = null; render(); return; }
-    if (selCard.locked) return toast('الحصة مقفلة');
-    if (!c) {
-      const np = ttView === 'class' || true ? p : p; const err = canMove(selCard, d, np);
-      if (err) return toast('لا يمكن: ' + err);
-      selCard.d = d; selCard.p = np; save(); selCard = null; render(); return;
-    }
-    if (c.locked) return toast('الحصة الهدف مقفلة');
-    // تبديل
-    if (selCard.d == null) return toast('اختر خانة فارغة للحصة غير الموضوعة');
-    const a = { d: selCard.d, p: selCard.p }, b = { d: c.d, p: c.p };
-    const e1 = canMove(selCard, b.d, b.p, [c]), e2 = canMove(c, a.d, a.p, [selCard]);
-    if (e1 || e2) return toast('لا يمكن التبديل: ' + (e1 || e2));
-    selCard.d = b.d; selCard.p = b.p; c.d = a.d; c.p = a.p; save(); selCard = null; render();
+  if ($('#who')) $('#who').onchange = e => { ttSel = e.target.value; render(); };
+  if ($('#lk')) { $('#lk').onclick = () => { selCard.locked = !selCard.locked; save(); render(); }; $('#rmv').onclick = () => { if (selCard.locked) return toast('فك القفل أولاً'); snap(); selCard.d = selCard.p = null; selCard.room = null; selCard = null; save(); render(); }; $('#cs').onclick = () => { selCard = null; render(); }; }
+  const byId = id => S.cards.find(c => c.id === id);
+  $('#main').querySelectorAll('.chips [data-cid]').forEach(s => s.onclick = () => { selCard = byId(s.dataset.cid); render(); });
+  $('#main').querySelectorAll('[draggable=true]').forEach(el => el.ondragstart = e => { dragCard = byId(el.dataset.cid); e.dataTransfer.setData('text/plain', el.dataset.cid); e.dataTransfer.effectAllowed = 'move'; });
+  const okRow = (card, key) => byTeacher ? card.teachers.includes(key) : card.cls === key;
+  $('#main').querySelectorAll('td.cell').forEach(td => {
+    const key = td.dataset.k, d = +td.dataset.d, p = +td.dataset.p;
+    td.ondragover = e => { if (dragCard && okRow(dragCard, key)) { e.preventDefault(); td.classList.add('over'); } };
+    td.ondragleave = () => td.classList.remove('over');
+    td.ondrop = e => { e.preventDefault(); td.classList.remove('over'); const c = dragCard; dragCard = null; if (c && moveCard(c, d, p)) { selCard = null; render(); } };
+    td.onclick = () => {
+      const c = cellOf(key, d, p)[0];
+      if (!selCard) { if (c) { selCard = c; render(); } return; }
+      if (c === selCard) { selCard = null; render(); return; }
+      if (!okRow(selCard, key)) { selCard = c || null; render(); return; }
+      if (moveCard(selCard, d, p)) { selCard = null; render(); }
+    };
   });
+  // تمييز الخانات المتاحة أثناء التحديد
+  if (selCard) $('#main').querySelectorAll('td.cell').forEach(td => { if (!okRow(selCard, td.dataset.k) || cellOf(td.dataset.k, +td.dataset.d, +td.dataset.p).length) return; if (!canMove(selCard, +td.dataset.d, +td.dataset.p)) td.classList.add('can'); });
 };
 
 /* ===================== 7) الاحتياط ===================== */
@@ -455,6 +602,7 @@ VIEWS.subs = () => {
   $('#sd').onchange = e => { VIEWS.subs.date = e.target.value; render(); };
   $('#ab').onchange = e => {
     const id = e.target.value; if (!id || day < 0) return;
+    if (!S.cards.some(c => c.d === day && c.teachers.includes(id))) { toast('هذا المعلم ليس لديه حصص في هذا اليوم'); return; }
     S.cards.filter(c => c.d === day && c.teachers.includes(id)).forEach(c => { for (let k = 0; k < c.len; k++) S.subs.push({ date, abs: id, p: c.p + k, cls: c.cls, subj: c.sub, sub: '' }); });
     S.subs.filter(x => x.date === date && x.abs === id && !x.sub).sort((a, b) => a.p - b.p).forEach(r => { const s = suggest(r)[0]; if (s) r.sub = s.t.id; });
     save(); render();
@@ -491,7 +639,7 @@ function printGeneral() {
   let rows = '';
   for (const s of S.subjects) {
     const ts = S.teachers.filter(t => t.sub === s.id); if (!ts.length) continue;
-    ts.forEach((t, i) => rows += `<tr>${i === 0 ? `<td class="dep" rowspan="${ts.length}">${esc(s.name)}</td>` : ''}<td>${i + 1}</td><td class="nm">${esc(t.name)}</td>${teacherRowCells(om, t.id)}</tr>`);
+    ts.forEach((t, i) => rows += `<tr style="background:${COLORPRINT ? s.color : 'transparent'}">${i === 0 ? `<td class="dep" rowspan="${ts.length}" style="background:${s.color}">${esc(s.name)}</td>` : ''}<td>${i + 1}</td><td class="nm">${esc(t.name)}</td>${teacherRowCells(om, t.id)}</tr>`);
   }
   const cols = `<colgroup><col style="width:70px"><col style="width:22px"><col style="width:150px">${'<col>'.repeat(5 * P())}</colgroup>`;
   return page('الجدول المدرسي', `<table class="sm">${cols}<thead>${dayHead('<th rowspan="2">القسم</th><th rowspan="2">الرقم</th><th rowspan="2">اسم المعلم</th>')}${perHead()}</thead><tbody>${rows}</tbody></table>`);
@@ -499,7 +647,7 @@ function printGeneral() {
 function printClasses(only) {
   const om = occMaps();
   return (only ? [only] : classes()).map(c => page(`الجدول الأسبوعي للصف ${c}`, `<div class="cls"><table><tr><th style="width:90px"></th>${PH().map(p => `<th>الحصة ${ORD[p]}</th>`).join('')}</tr>
-   ${DAYS.map((dn, d) => `<tr><th>${dn}</th>${PH().map(p => { const x = (om.cls[c + '|' + d + '|' + p] || [])[0]; return `<td>${x ? `<b>${esc(subShort(x.sub))}</b><small>${x.teachers.map(t => esc(tch(t)?.name || '')).join(' + ')}</small>` : ''}</td>`; }).join('')}</tr>`).join('')}</table></div>`, 'landscape', 'cls')).join('');
+   ${DAYS.map((dn, d) => `<tr><th>${dn}</th>${PH().map(p => { const x = (om.cls[c + '|' + d + '|' + p] || [])[0]; return `<td style="background:${x && COLORPRINT ? subColor(x.sub) : ''}">${x ? `<b>${esc(subShort(x.sub))}</b><small>${x.teachers.map(t => esc(tch(t)?.name || '')).join(' + ')}</small>` : ''}</td>`; }).join('')}</tr>`).join('')}</table></div>`, 'landscape', 'cls')).join('');
 }
 function printTeachers(mode, sel) {
   const om = occMaps();
@@ -522,7 +670,7 @@ function printFirstLast() {
    ${classes().map(c => `<tr><td rowspan="2"><b>${c}</b></td>${DAYS.map((_, d) => [0, L].map(p => `<td><b>${esc(cellPair(c, d, p) ? subShort(cellPair(c, d, p).sub) : '')}</b></td>`).join('')).join('')}</tr>
    <tr>${DAYS.map((_, d) => [0, L].map(p => { const x = cellPair(c, d, p); return `<td style="font-size:9px">${x ? x.teachers.map(t => esc(tch(t)?.name || '')).join(' + ') : ''}</td>`; }).join('')).join('')}</tr>`).join('')}</table>`, 'portrait');
 }
-let lastPrint = '';
+let lastPrint = ''; let COLORPRINT = true;
 function doPrint(html) {
   const orient = html.includes('data-o="portrait"') && !html.includes('data-o="landscape"') ? 'portrait' : 'landscape';
   let st = document.getElementById('pgst'); if (!st) { st = document.createElement('style'); st.id = 'pgst'; document.head.appendChild(st); }
@@ -541,11 +689,12 @@ VIEWS.print = () => {
   $('#main').innerHTML = `<div class="card"><div class="row">
    <select id="pk" style="width:auto">${kinds.map(([a, b]) => `<option value="${a}" ${a === k ? 'selected' : ''}>${b}</option>`).join('')}</select>
    ${selOpts ? `<select id="ps" style="width:auto"><option value="">الكل</option>${selOpts.map(([a, b]) => `<option value="${a}" ${a === sel ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>` : ''}
-   <button class="btn" id="pp">🖨 طباعة / حفظ PDF</button><button class="btn o" id="px">⬇ تصدير Excel</button></div>
+   <label style="display:flex;gap:4px;color:var(--ink);margin:0"><input type="checkbox" id="pcol" ${COLORPRINT ? 'checked' : ''}>طباعة ملونة</label><button class="btn" id="pp">🖨 طباعة / حفظ PDF</button><button class="btn o" id="px">⬇ تصدير Excel</button></div>
    <p class="mute">المعاينة أدناه. اختر "حفظ كـ PDF" من نافذة الطباعة لحفظ ملف.</p></div>
    <div class="scroll" style="background:#fff;border:1px solid var(--line);border-radius:8px"><div class="pv" style="min-width:1000px">${html}</div></div>`;
   $('#pk').onchange = e => { VIEWS.print.k = e.target.value; VIEWS.print.sel = ''; render(); };
   if ($('#ps')) $('#ps').onchange = e => { VIEWS.print.sel = e.target.value; render(); };
+  $('#pcol').onchange = e => { COLORPRINT = e.target.checked; render(); };
   $('#pp').onclick = () => doPrint(lastPrint);
   $('#px').onclick = exportExcel;
 };

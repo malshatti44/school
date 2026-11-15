@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>منظم الجدول المدرسي</title>
+<title>الجدول المدرسي الرقمي</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg">
 <meta name="theme-color" content="#0f5e6e">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="vendor/xlsx.full.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';document.head.appendChild(s)"></script>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--ink:#1d2730;--mute:#5d6b78;--line:#d7dee5;--pri:#0f5e6e;--pri2:#e3f1f3;--warn:#b54708;--bad:#b42318;--ok:#067647;--sel:#fde68a}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#11171c;--card:#1a232a;--ink:#e6edf2;--mute:#9aa8b4;--line:#2d3a44;--pri:#4fb3c4;--pri2:#173740;--sel:#6b5a12}}
@@ -22,7 +22,7 @@ header.top img{height:36px;border-radius:6px;background:#fff}
 nav.tabs{display:flex;gap:4px;overflow-x:auto;background:var(--card);border-bottom:1px solid var(--line);padding:0 8px;position:sticky;top:0;z-index:5}
 nav.tabs button{border:0;background:none;padding:12px 14px;font:inherit;color:var(--mute);cursor:pointer;white-space:nowrap;border-bottom:3px solid transparent}
 nav.tabs button.on{color:var(--pri);border-color:var(--pri);font-weight:700}
-main{padding:16px;max-width:1400px;margin:auto}
+main{padding:12px;max-width:1800px;margin:auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
 .card h2{margin:0 0 12px;font-size:17px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
@@ -50,6 +50,33 @@ table.t th{background:var(--pri2)}
 dialog{border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink);max-width:95vw;width:640px}
 dialog::backdrop{background:rgba(0,0,0,.4)}
 .chips span{display:inline-block;background:var(--pri2);border-radius:6px;padding:2px 6px;margin:2px;font-size:12px}
+.ribbon{display:flex;flex-wrap:wrap;gap:4px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:6px;margin-bottom:8px;position:sticky;top:46px;z-index:4}
+.rb{display:flex;flex-direction:column;align-items:center;gap:2px;border:1px solid transparent;background:none;color:var(--ink);font:inherit;font-size:12px;padding:4px 10px;border-radius:8px;cursor:pointer;min-width:58px}
+.rb b{font-size:18px;font-weight:400}.rb:hover{background:var(--pri2);border-color:var(--line)}
+.ribbon select{width:auto;padding:6px}.sep{width:1px;align-self:stretch;background:var(--line);margin:0 4px}
+.selbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px}.selbar .pill{color:#111;font-size:13px;padding:4px 10px}
+.legend{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px}.legend span{color:#111;font-size:12px;padding:2px 8px;border-radius:4px;border:1px solid rgba(0,0,0,.15)}
+.gridwrap{overflow:auto;max-height:calc(100vh - 230px);border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.tt td.cell{padding:1px;min-width:0;height:auto}
+.tt:not(.master) td.cell{height:52px;min-width:80px}
+.cardx{color:#111;border-radius:4px;padding:2px 3px;font-size:12px;line-height:1.25;border:1px solid rgba(0,0,0,.18);cursor:grab;user-select:none;height:100%;display:flex;flex-direction:column;justify-content:center;overflow:hidden;white-space:nowrap}
+.cardx small{font-size:10px;color:#333;display:block}
+.chips .cardx{display:inline-block;margin:3px;padding:4px 8px;cursor:grab}
+.master{font-size:12px;border-collapse:separate;border-spacing:0}
+.master th,.master td{padding:1px}
+.master td.cell{width:40px;min-width:40px;height:30px}
+.master .cardx{font-size:11px;padding:1px}
+.master thead th{position:sticky;top:0;z-index:2}.master thead tr:nth-child(2) th{top:27px}
+.master .stick{position:sticky;right:0;z-index:1;background:var(--pri2);white-space:nowrap;text-align:right;padding:2px 6px;font-size:12px}
+.master thead .stick{z-index:3}
+td.dend,th.dend{border-left:2px solid var(--ink)!important}
+td.cell.sel .cardx{outline:3px solid #111;outline-offset:-2px}
+td.cell.lock .cardx{background-image:repeating-linear-gradient(135deg,transparent 0 6px,rgba(0,0,0,.08) 6px 8px)}
+td.cell.lock .cardx::after{content:"🔒";font-size:9px}
+td.cell.clash{background:#f44}
+td.cell.can{background:rgba(6,118,71,.22)}
+td.cell.over{background:rgba(15,94,110,.35)}
+.pv *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 /* ======== print ======== */
 #printArea{display:none}
 .pv{background:#fff;color:#000;padding:8px;margin:auto}
@@ -79,7 +106,7 @@ dialog::backdrop{background:rgba(0,0,0,.4)}
 </style>
 </head>
 <body>
-<header class="top"><img id="hLogo" alt="" hidden><h1 id="hTitle">منظم الجدول المدرسي</h1><span id="hYear" class="pill" style="background:rgba(255,255,255,.2)"></span></header>
+<header class="top"><img id="hLogo" alt="" hidden><h1 id="hTitle">الجدول المدرسي الرقمي</h1><span id="hYear" class="pill" style="background:rgba(255,255,255,.2)"></span></header>
 <nav class="tabs" id="tabs"></nav>
 <main id="main"></main>
 <div id="printArea"></div>
