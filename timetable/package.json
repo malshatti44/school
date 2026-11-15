@@ -8,7 +8,7 @@
   "scripts": {
     "vendor": "node -e \"require('fs').mkdirSync('vendor',{recursive:true});require('fs').copyFileSync('node_modules/xlsx/dist/xlsx.full.min.js','vendor/xlsx.full.min.js')\"",
     "start": "npm run vendor && electron .",
-    "dist": "npm run vendor && electron-builder --win nsis portable --x64"
+    "dist": "npm run vendor && electron-builder --win nsis portable --x64 --publish never"
   },
   "devDependencies": {
     "electron": "33.2.1",
@@ -18,9 +18,28 @@
   "build": {
     "appId": "kw.school.digital-timetable",
     "productName": "الجدول المدرسي الرقمي",
-    "artifactName": "DigitalTimetable-${version}-${arch}-${target}.${ext}",
-    "files": ["index.html", "app.js", "manifest.json", "icon.svg", "icon.png", "sw.js", "vendor/**", "electron-main.js"],
-    "win": { "icon": "icon.png" },
-    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "createDesktopShortcut": true, "shortcutName": "الجدول المدرسي الرقمي" }
+    "files": [
+      "index.html",
+      "app.js",
+      "manifest.json",
+      "icon.svg",
+      "icon.png",
+      "sw.js",
+      "vendor/**",
+      "electron-main.js"
+    ],
+    "win": {
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "الجدول المدرسي الرقمي",
+      "artifactName": "DigitalTimetable-Setup-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "DigitalTimetable-Portable-${version}.${ext}"
+    }
   }
 }
