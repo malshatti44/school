@@ -18,6 +18,42 @@ try { S = JSON.parse(localStorage.getItem(KEY)) || blank(); } catch (e) { S = bl
 const PALETTE = ['#cfe8ff', '#ffd9d9', '#d7f5d0', '#fff1b8', '#e8dcff', '#ffe0c2', '#c9f2ee', '#f9d5ec', '#e0e7d0', '#dcdcdc', '#ffd6a5', '#bde0fe', '#caffbf', '#fdffb6', '#ffc6ff', '#a0c4ff'];
 S.rooms ||= []; S.rules ||= { gaps: true, spread: true };
 S.subjects.forEach((s, i) => s.color ||= PALETTE[i % PALETTE.length]);
+function effT(id) {
+  const t = tch(id); if (!t) return { max: 99, consec: 99, unav: new Set() };
+  const s = sub(t.sub) || {}, G = S.rules, mn = a => Math.min(...a.map(x => +x || 99));
+  const max = mn([t.maxDay, s.tMaxDay, t.head && G.headMaxDay, G.tMaxDay]);
+  const consec = mn([t.maxConsec, s.tMaxConsec, t.head && G.headMaxConsec, G.tMaxConsec]);
+  const u = new Set(t.unav || []); (s.meet || []).forEach(x => u.add(x)); (t.head ? G.headSlots || [] : []).forEach(x => u.add(x));
+  const noP = [...(s.tNoP || []), ...(t.head ? G.headNoP || [] : [])];
+  for (let d = 0; d < 5; d++) { noP.forEach(p => u.add(d + ':' + p)); if (t.freeDay === d) for (let p = 0; p < P(); p++) u.add(d + ':' + p); }
+  return { max, consec, unav: u };
+}
+function slotDialog(title, arr, done, inherited = new Set()) {
+  $('#dlgBody').innerHTML = `<h3>${title}</h3><p class="mute">اضغط على الحصة لتعليمها. الرمادي مفروض من قاعدة أخرى.</p>
+   <div class="scroll"><table class="t"><tr><th></th>${Array.from({ length: P() }, (_, p) => `<th>${p + 1}</th>`).join('')}</tr>
+   ${DAYS.map((d, di) => `<tr><th>${d}</th>${Array.from({ length: P() }, (_, p) => { const k = di + ':' + p, on = arr.includes(k), inh = !on && inherited.has(k); return `<td class="${on ? 'unav' : ''}" style="${inh ? 'background:#ccc' : ''};cursor:pointer;height:34px" data-dp="${k}">${on ? '✕' : inh ? '•' : ''}</td>`; }).join('')}</tr>`).join('')}</table></div>
+   <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" id="dOk">تم</button></div>`;
+  $('#dlgBody').querySelectorAll('[data-dp]').forEach(c => c.onclick = () => { const k = c.dataset.dp, i = arr.indexOf(k); i < 0 ? arr.push(k) : arr.splice(i, 1); c.classList.toggle('unav'); c.textContent = i < 0 ? '✕' : ''; c.style.background = ''; save(); });
+  $('#dOk').onclick = () => { $('#dlg').close(); done && done(); };
+  $('#dlg').showModal();
+}
+function teacherDialog(t) {
+  $('#dlgBody').innerHTML = `<h3>قواعد وملاحظات: ${esc(t.name)}</h3>
+   <label style="display:flex;gap:6px;align-items:center;color:var(--ink);margin:8px 0"><input type="checkbox" id="tdHead" ${t.head ? 'checked' : ''}> رئيس الشعبة / رئيس القسم (تُطبَّق عليه قواعد رؤساء الشعب)</label>
+   <div class="grid">
+    <div><label>أقصى حصص في اليوم</label><input type="number" min="0" id="tdMax" value="${t.maxDay || ''}" placeholder="حسب القواعد العامة"></div>
+    <div><label>أقصى حصص متتالية</label><input type="number" min="0" id="tdCons" value="${t.maxConsec || ''}" placeholder="حسب القواعد العامة"></div>
+    <div><label>يوم بدون حصص</label><select id="tdFree"><option value="">— لا يوجد —</option>${DAYS.map((d, i) => `<option value="${i}" ${t.freeDay === i ? 'selected' : ''}>${d}</option>`).join('')}</select></div>
+   </div>
+   <div class="row" style="margin-top:10px"><button class="btn o s" id="tdUn">أوقات غير متاحة (${(t.unav || []).length})</button><span class="mute">القواعد الفعلية: أقصى ${effT(t.id).max === 99 ? '—' : effT(t.id).max}/يوم، متتالية ${effT(t.id).consec === 99 ? '—' : effT(t.id).consec}، ${effT(t.id).unav.size} حصة محجوبة</span></div>
+   <label style="margin-top:10px">ملاحظات على المعلم</label><textarea id="tdNotes" rows="4" placeholder="مثال: يفضّل الحصص الأولى، لديه إشراف يوم الاثنين...">${esc(t.notes || '')}</textarea>
+   <div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn o" id="tdC">إلغاء</button><button class="btn" id="tdOk">حفظ</button></div>`;
+  const apply = () => { t.head = $('#tdHead').checked; t.maxDay = +$('#tdMax').value || 0; t.maxConsec = +$('#tdCons').value || 0; t.freeDay = $('#tdFree').value === '' ? null : +$('#tdFree').value; t.notes = $('#tdNotes').value; save(); };
+  $('#tdUn').onclick = () => { apply(); t.unav = t.unav || []; slotDialog('الأوقات غير المتاحة: ' + esc(t.name), t.unav, () => teacherDialog(t)); };
+  $('#tdC').onclick = () => $('#dlg').close();
+  $('#tdOk').onclick = () => { apply(); $('#dlg').close(); render(); toast('تم الحفظ'); };
+  $('#dlg').showModal();
+}
 const subColor = id => sub(id)?.color || '#eee';
 let UNDO = [];
 function snap() { UNDO.push(JSON.stringify(S.cards.map(c => [c.id, c.d, c.p, c.locked, c.room]))); if (UNDO.length > 50) UNDO.shift(); }
@@ -139,11 +175,11 @@ VIEWS.teachers = () => {
    <div class="scroll"><table class="t"><tr><th>#</th><th>اسم المعلم</th><th>القسم</th>${gs.map(g => `<th>صف ${g}</th>`).join('')}<th>النصاب</th><th>أقصى/يوم</th><th></th></tr>
    ${S.subjects.flatMap(s => S.teachers.filter(t => t.sub === s.id)).concat(S.teachers.filter(t => !sub(t.sub))).map((t, i) => {
     const load = S.cards.filter(c => c.teachers.includes(t.id)).reduce((a, c) => a + c.len, 0);
-    return `<tr><td>${i + 1}</td><td><input data-t="${t.id}" data-k="name" value="${esc(t.name)}"></td>
+    return `<tr><td>${i + 1}${t.head ? ' 👑' : ''}</td><td><input data-t="${t.id}" data-k="name" value="${esc(t.name)}" title="${esc(t.notes || '')}"></td>
      <td style="background:${subColor(t.sub)}"><select data-t="${t.id}" data-k="sub">${S.subjects.map(s => `<option value="${s.id}" ${s.id === t.sub ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></td>
      ${gs.map(g => `<td><input type="number" min="0" data-t="${t.id}" data-g="${g}" value="${t.counts[g] || 0}" style="width:60px"></td>`).join('')}
      <td>${load}</td><td><input type="number" min="0" data-t="${t.id}" data-k="maxDay" value="${t.maxDay || ''}" placeholder="—" style="width:60px"></td>
-     <td class="row" style="justify-content:center"><button class="btn o s" data-av="${t.id}">أوقات غير متاحة${t.unav?.length ? ' (' + t.unav.length + ')' : ''}</button><button class="btn r s" data-rm="${t.id}">حذف</button></td></tr>`;
+     <td class="row" style="justify-content:center"><button class="btn o s" data-tr="${t.id}">قواعد وملاحظات${t.notes ? ' 📝' : ''}</button><button class="btn o s" data-av="${t.id}">أوقات غير متاحة${t.unav?.length ? ' (' + t.unav.length + ')' : ''}</button><button class="btn r s" data-rm="${t.id}">حذف</button></td></tr>`;
   }).join('')}
    </table></div></div>${nextBtn('assign')}`;
   $('#addT').onclick = () => {
@@ -160,6 +196,7 @@ VIEWS.teachers = () => {
   });
   $('#main').querySelectorAll('[data-rm]').forEach(b => b.onclick = () => { if (!confirm('حذف المعلم؟')) return; const id = b.dataset.rm; S.teachers = S.teachers.filter(t => t.id !== id); for (const k in S.assign) S.assign[k] = S.assign[k].filter(x => x !== id); S.cards.forEach(c => c.teachers = c.teachers.filter(x => x !== id)); save(); render(); });
   $('#main').querySelectorAll('[data-av]').forEach(b => b.onclick = () => unavDialog(tch(b.dataset.av)));
+  $('#main').querySelectorAll('[data-tr]').forEach(b => b.onclick = () => teacherDialog(tch(b.dataset.tr)));
   $('#tpl').onclick = () => downloadTemplate('xlsx'); $('#tplCsv').onclick = () => downloadTemplate('csv');
   $('#imp').onchange = e => importTeachers(e.target.files[0]);
 };
@@ -331,7 +368,7 @@ function checkData() {
   for (const c of classes()) { const n = S.cards.filter(x => x.cls === c).reduce((a, x) => a + x.len, 0); if (n > cap) out.push(['bad', `الفصل ${c}: ${n} حصة أكبر من المتاح ${cap}`]); }
   for (const t of S.teachers) {
     const n = S.cards.filter(x => x.teachers.includes(t.id)).reduce((a, x) => a + x.len, 0);
-    const av = cap - (t.unav?.length || 0); const md = t.maxDay ? t.maxDay * 5 : cap;
+    const e = effT(t.id); const av = cap - e.unav.size; const md = e.max < 99 ? e.max * 5 : cap;
     if (n > Math.min(av, md)) out.push(['bad', `${t.name}: نصابه ${n} حصة والمتاح له ${Math.min(av, md)} فقط`]);
   }
   for (const s of S.subjects) {
@@ -353,17 +390,47 @@ VIEWS.rules = () => {
    <tr><td>✔ الحصة المشتركة (معلمان) تُوضع حين يكون الاثنان متفرغين</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ الحصص المزدوجة متتالية</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ احترام الأوقات غير المتاحة للمعلم</td><td class="ok">إلزامي</td></tr>
-   <tr><td>✔ أقصى عدد حصص للمعلم في اليوم</td><td class="ok">إلزامي (إن حُدّد)</td></tr>
+   <tr><td>✔ أقصى عدد حصص للمعلم في اليوم، وأقصى حصص متتالية (عامة / القسم / رئيس الشعبة / المعلم — يُطبَّق الأشد)</td><td class="ok">إلزامي (إن حُدّد)</td></tr>
+   <tr><td>✔ اجتماعات الأقسام، أوقات رؤساء الشعب المحجوزة، ويوم بدون حصص للمعلم</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ أقصى عدد حصص للمادة في اليوم، والحصص الممنوعة للمادة</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ توفر القاعة الخاصة</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ الحصص المقفلة لا تتحرك</td><td class="ok">إلزامي</td></tr>
    <tr><td><label style="color:var(--ink)"><input type="checkbox" id="rSpread" ${R.spread ? 'checked' : ''}> توزيع المادة على أيام الأسبوع بالتساوي</label></td><td>تفضيل</td></tr>
    <tr><td><label style="color:var(--ink)"><input type="checkbox" id="rGaps" ${R.gaps ? 'checked' : ''}> تقليل الفراغات في جدول المعلم</label></td><td>تفضيل</td></tr>
    </table></div>
+
+   <div class="card"><h2>القواعد العامة (كل المعلمين)</h2><div class="grid">
+    <div><label>أقصى حصص للمعلم في اليوم</label><input type="number" min="0" data-g="tMaxDay" value="${R.tMaxDay || ''}" placeholder="بدون حد"></div>
+    <div><label>أقصى حصص متتالية للمعلم</label><input type="number" min="0" data-g="tMaxConsec" value="${R.tMaxConsec || ''}" placeholder="بدون حد"></div>
+   </div></div>
+   <div class="card"><h2>قواعد رؤساء الشعب 👑</h2>
+    <p class="mute">رؤساء الشعب الحاليون: ${S.teachers.filter(t => t.head).map(t => esc(t.name)).join('، ') || 'لا يوجد — حدّدهم من زر "قواعد وملاحظات" في تبويب المعلمين'}</p>
+    <div class="grid">
+     <div><label>أقصى حصص في اليوم</label><input type="number" min="0" data-g="headMaxDay" value="${R.headMaxDay || ''}" placeholder="بدون حد"></div>
+     <div><label>أقصى حصص متتالية</label><input type="number" min="0" data-g="headMaxConsec" value="${R.headMaxConsec || ''}" placeholder="بدون حد"></div>
+     <div><label>حصص يومية ممنوعة</label><div>${Array.from({ length: P() }, (_, p) => `<label style="display:inline-flex;flex-direction:column;align-items:center;font-size:11px;color:var(--ink)"><input type="checkbox" data-hnp value="${p}" ${(R.headNoP || []).includes(p) ? 'checked' : ''}>${p + 1}</label>`).join('')}</div></div>
+     <div><label>أوقات محجوزة (اجتماعات/إشراف)</label><button class="btn o s" id="headSlots">تحديد (${(R.headSlots || []).length})</button></div>
+    </div></div>
+   <div class="card"><h2>قواعد خاصة بكل قسم</h2><p class="mute">تُطبَّق على كل معلمي القسم. "اجتماع القسم": حصص يكون فيها كل معلمي القسم بدون حصص.</p>
+    <div class="scroll"><table class="t"><tr><th>القسم</th><th>أقصى/يوم للمعلم</th><th>أقصى متتالية</th><th>حصص ممنوعة لمعلمي القسم</th><th>اجتماع القسم</th></tr>
+    ${S.subjects.map((s, i) => `<tr><th style="background:${s.color}">${esc(s.name)}</th>
+     <td><input type="number" min="0" data-ds="${i}" data-k="tMaxDay" value="${s.tMaxDay || ''}" placeholder="—" style="width:70px"></td>
+     <td><input type="number" min="0" data-ds="${i}" data-k="tMaxConsec" value="${s.tMaxConsec || ''}" placeholder="—" style="width:70px"></td>
+     <td style="white-space:nowrap">${Array.from({ length: P() }, (_, p) => `<label style="display:inline-flex;flex-direction:column;align-items:center;font-size:11px;color:var(--ink)"><input type="checkbox" data-dnp="${i}" value="${p}" ${(s.tNoP || []).includes(p) ? 'checked' : ''}>${p + 1}</label>`).join('')}</td>
+     <td><button class="btn o s" data-meet="${i}">تحديد (${(s.meet || []).length})</button></td></tr>`).join('')}
+    </table></div></div>
+   <div class="card"><h2>ملاحظات المعلمين 📝</h2>${S.teachers.filter(t => t.notes).map(t => `<div style="border-right:5px solid ${subColor(t.sub)};padding:4px 8px;margin:4px 0"><b>${esc(t.name)}</b>: ${esc(t.notes)} <button class="btn o s" data-tn="${t.id}">تعديل</button></div>`).join('') || '<p class="mute">لا توجد ملاحظات. أضفها من زر "قواعد وملاحظات" في تبويب المعلمين.</p>'}</div>
    <div class="card"><h2>فحص البيانات قبل التوليد</h2>${checkData().map(([k, m]) => `<div class="${k}">${k === 'ok' ? '✓' : '⚠'} ${esc(m)}</div>`).join('')}</div>
    <div class="card"><h2>إحصائيات الجدول</h2>${stats()}</div>${nextBtn('tt')}`;
   $('#rSpread').onchange = e => { R.spread = e.target.checked; save(); };
   $('#rGaps').onchange = e => { R.gaps = e.target.checked; save(); };
+  $('#main').querySelectorAll('[data-g]').forEach(i => i.onchange = e => { R[i.dataset.g] = +e.target.value || 0; save(); render(); });
+  $('#main').querySelectorAll('[data-hnp]').forEach(i => i.onchange = () => { R.headNoP = [...$('#main').querySelectorAll('[data-hnp]:checked')].map(x => +x.value); save(); });
+  $('#headSlots').onclick = () => { R.headSlots ||= []; slotDialog('أوقات محجوزة لرؤساء الشعب', R.headSlots, render); };
+  $('#main').querySelectorAll('[data-ds]').forEach(i => i.onchange = e => { S.subjects[+i.dataset.ds][i.dataset.k] = +e.target.value || 0; save(); render(); });
+  $('#main').querySelectorAll('[data-dnp]').forEach(i => i.onchange = () => { S.subjects[+i.dataset.dnp].tNoP = [...$('#main').querySelectorAll(`[data-dnp="${i.dataset.dnp}"]:checked`)].map(x => +x.value); save(); });
+  $('#main').querySelectorAll('[data-meet]').forEach(b => b.onclick = () => { const s = S.subjects[+b.dataset.meet]; s.meet ||= []; slotDialog('اجتماع قسم ' + esc(s.name), s.meet, render); });
+  $('#main').querySelectorAll('[data-tn]').forEach(b => b.onclick = () => teacherDialog(tch(b.dataset.tn)));
 };
 function stats() {
   const rows = S.teachers.map(t => {
@@ -381,8 +448,8 @@ function generate(keepPlaced) {
   syncCards();
   const D = 5, PP = P(), cards = S.cards, R = S.rules;
   const occ = {}; const cell = k => occ[k] || (occ[k] = Array.from({ length: D }, () => Array(PP).fill(-1)));
-  const unav = {}; S.teachers.forEach(t => unav[t.id] = new Set(t.unav || []));
-  const tMax = {}; S.teachers.forEach(t => tMax[t.id] = +t.maxDay || 99);
+  const unav = {}, tMax = {}, tCons = {}; S.teachers.forEach(t => { const e = effT(t.id); unav[t.id] = e.unav; tMax[t.id] = e.max; tCons[t.id] = e.consec; });
+  const runLen = (row, p, len) => { let n = len, a = p - 1; while (a >= 0 && row[a] >= 0) { n++; a--; } let b = p + len; while (b < PP && row[b] >= 0) { n++; b++; } return n; };
   const tDay = {}; const tdk = (t, d) => t + '|' + d;
   const cnt = {}; cards.forEach(c => { const k = c.cls + '|' + c.sub; cnt[k] = (cnt[k] || 0) + 1; });
   const perDayMax = {}; for (const k in cnt) { const s = sub(k.split('|')[1]); perDayMax[k] = s?.maxDay ? Math.max(1, s.maxDay) : Math.ceil(cnt[k] / D); }
@@ -400,6 +467,7 @@ function generate(keepPlaced) {
       for (const t of c.teachers) { if (unav[t]?.has(d + ':' + (p + k))) return null; const o = cell('t' + t)[d][p + k]; if (o >= 0) set.add(o); }
       const o = cell('c' + c.cls)[d][p + k]; if (o >= 0) set.add(o);
     }
+    for (const t of c.teachers) if (tCons[t] < 99 && runLen(cell('t' + t)[d], p, c.len) > tCons[t]) return null;
     for (const t of c.teachers) if ((tDay[tdk(t, d)] || 0) + c.len > tMax[t]) {
       // أزح حصص المعلم الأخرى في هذا اليوم إن لزم
       let over = (tDay[tdk(t, d)] || 0) + c.len - tMax[t];
@@ -473,9 +541,10 @@ function canMove(card, d, p, ignore = []) {
       if (o.cls === card.cls) return `الفصل ${o.cls} مشغول`;
       const t = o.teachers.find(x => card.teachers.includes(x)); if (t) return `${tch(t).name} لديه حصة في ${o.cls}`;
     }
-    for (const t of card.teachers) if (tch(t)?.unav?.includes(d + ':' + (p + k))) return `${tch(t).name} غير متاح`;
+    for (const t of card.teachers) if (effT(t).unav.has(d + ':' + (p + k))) return `${tch(t).name} غير متاح (قاعدة)`;
   }
-  for (const t of card.teachers) { const m = +tch(t)?.maxDay; if (m && others.filter(o => o.teachers.includes(t)).reduce((a, o) => a + o.len, 0) + card.len > m) return `${tch(t).name} تجاوز أقصى ${m} حصص في اليوم`; }
+  for (const t of card.teachers) { const c = effT(t).consec; if (c < 99) { const occ = new Set(others.filter(o => o.teachers.includes(t)).flatMap(o => Array.from({ length: o.len }, (_, k) => o.p + k))); let n = card.len, a = p - 1; while (occ.has(a)) { n++; a--; } let b = p + card.len; while (occ.has(b)) { n++; b++; } if (n > c) return `${tch(t).name} تجاوز ${c} حصص متتالية`; } }
+  for (const t of card.teachers) { const m = effT(t).max < 99 ? effT(t).max : 0; if (m && others.filter(o => o.teachers.includes(t)).reduce((a, o) => a + o.len, 0) + card.len > m) return `${tch(t).name} تجاوز أقصى ${m} حصص في اليوم`; }
   const mx = s?.maxDay || Math.ceil(S.cards.filter(o => o.cls === card.cls && o.sub === card.sub).length / 5);
   if (others.filter(o => o.cls === card.cls && o.sub === card.sub).length >= mx) return `${s.name} وصلت الحد الأقصى في هذا اليوم`;
   const rs = roomsFor(card.sub);
@@ -506,7 +575,7 @@ VIEWS.tt = () => {
   const cellOf = (key, d, p) => byTeacher ? (om.t[key + '|' + d + '|' + p] || []) : (om.cls[key + '|' + d + '|' + p] || []);
   const td = (key, d, p, mode) => {
     const cs = cellOf(key, d, p), c = cs[0];
-    const una = byTeacher && tch(key)?.unav?.includes(d + ':' + p);
+    const una = byTeacher && effT(key).unav.has(d + ':' + p);
     return `<td class="cell ${c && c === selCard ? 'sel' : ''} ${c?.locked ? 'lock' : ''} ${una ? 'unav' : ''} ${cs.length > 1 ? 'clash' : ''} ${p === P() - 1 ? 'dend' : ''}" data-k="${key}" data-d="${d}" data-p="${p}">${c ? cardHtml(c, mode) : ''}</td>`;
   };
   let grid;
@@ -656,7 +725,7 @@ function printTeachers(mode, sel) {
   return groups.map(([title, ts]) => page(mode === 'dept' ? 'جدول قسم ' + esc(title) : 'جدول المعلم: ' + esc(title),
     `<table style="font-size:11px"><colgroup><col style="width:160px">${'<col>'.repeat(5 * P())}</colgroup>${dayHead('<th rowspan="2">اسم المعلم</th>')}${perHead()}
      ${ts.map(t => `<tr style="height:30px"><td class="nm">${esc(t.name)}</td>${teacherRowCells(om, t.id)}</tr>`).join('')}</table>
-     <p style="font-size:12px">${ts.map(t => `${esc(t.name)}: ${S.cards.filter(c => c.d != null && c.teachers.includes(t.id)).reduce((a, c) => a + c.len, 0)} حصة`).join(' &nbsp;|&nbsp; ')}</p>`)).join('');
+     <p style="font-size:12px">${ts.map(t => `${esc(t.name)}: ${S.cards.filter(c => c.d != null && c.teachers.includes(t.id)).reduce((a, c) => a + c.len, 0)} حصة`).join(' &nbsp;|&nbsp; ')}</p>${ts.filter(t => t.notes).map(t => `<p style="font-size:12px"><b>ملاحظات ${esc(t.name)}:</b> ${esc(t.notes)}</p>`).join('')}`)).join('');
 }
 function printDaily() {
   const om = occMaps();
