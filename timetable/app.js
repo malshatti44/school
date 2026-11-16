@@ -28,6 +28,28 @@ function effT(id) {
   for (let d = 0; d < 5; d++) { noP.forEach(p => u.add(d + ':' + p)); if (t.freeDay === d) for (let p = 0; p < P(); p++) u.add(d + ':' + p); }
   return { max, consec, unav: u };
 }
+const lim = v => v === '' || v == null ? null : +v; // فارغ = بدون حد، 0 = ممنوع
+function concRules() {
+  const out = (S.rules.conc || []).filter(r => r.subs.length && r.max > 0).map(r => ({ subs: r.subs, max: +r.max, name: r.subs.map(subShort).join(' + ') }));
+  S.subjects.forEach(s => { if (lim(s.maxSim) != null) out.push({ subs: [s.id], max: lim(s.maxSim), name: s.short || s.name }); });
+  return out;
+}
+// فحص قواعد المادة لبطاقة في خانة معينة؛ others = البطاقات الأخرى في الجدول
+function subjRuleErr(card, d, p, ignore = []) {
+  const s = sub(card.sub); if (!s) return '';
+  const pool = S.cards.filter(o => o !== card && !ignore.includes(o) && o.d != null);
+  const cover = (o, x) => o.d === d && x >= o.p && x < o.p + o.len;
+  for (const r of concRules()) if (r.subs.includes(card.sub)) for (let k = 0; k < card.len; k++) {
+    if (r.max === 0) return `${r.name} ممنوعة`;
+    if (pool.filter(o => r.subs.includes(o.sub) && cover(o, p + k)).length >= r.max) return `${r.name}: الحد الأقصى ${r.max} بنفس الحصة`;
+  }
+  const mc = lim(s.maxConsec);
+  if (mc != null) { const occ = new Set(pool.filter(o => o.d === d && o.cls === card.cls && o.sub === card.sub).flatMap(o => Array.from({ length: o.len }, (_, k) => o.p + k))); let n = card.len, a = p - 1; while (occ.has(a)) { n++; a--; } let b = p + card.len; while (occ.has(b)) { n++; b++; } if (n > Math.max(mc, 1)) return `${s.name}: أكثر من ${mc} حصص متتالية`; }
+  const L = P() - 1, same = pool.filter(o => o.cls === card.cls && o.sub === card.sub);
+  const fm = lim(s.firstMax); if (fm != null && p === 0 && same.filter(o => o.p === 0).length >= fm) return fm ? `${s.name}: الحد ${fm} مرات في الحصة الأولى` : `${s.name} ممنوعة في الحصة الأولى`;
+  const lm = lim(s.lastMax); if (lm != null && p + card.len - 1 === L && same.filter(o => o.p + o.len - 1 === L).length >= lm) return lm ? `${s.name}: الحد ${lm} مرات في الحصة الأخيرة` : `${s.name} ممنوعة في الحصة الأخيرة`;
+  return '';
+}
 function slotDialog(title, arr, done, inherited = new Set()) {
   $('#dlgBody').innerHTML = `<h3>${title}</h3><p class="mute">اضغط على الحصة لتعليمها. الرمادي مفروض من قاعدة أخرى.</p>
    <div class="scroll"><table class="t"><tr><th></th>${Array.from({ length: P() }, (_, p) => `<th>${p + 1}</th>`).join('')}</tr>
@@ -377,6 +399,7 @@ function checkData() {
     if (allowed * 5 < s.load) out.push(['bad', `${s.name}: الحصص الممنوعة كثيرة`]);
     const rs = roomsFor(s.id); if (rs.length) { const need = S.cards.filter(c => c.sub === s.id).reduce((a, c) => a + c.len, 0); if (need > rs.length * cap) out.push(['bad', `${s.name}: يحتاج ${need} حصة في القاعات المتاحة ${rs.length * cap}`]); }
   }
+  for (const r of concRules()) { const need = S.cards.filter(c => r.subs.includes(c.sub)).reduce((a, c) => a + c.len, 0); if (need > r.max * cap) out.push(['bad', `${r.name}: ${need} حصة ولا يتسع لها إلا ${r.max * cap} بحد ${r.max} بنفس الحصة`]); }
   const noT = S.cards.filter(c => !c.teachers.length); if (noT.length) out.push(['warn', `${noT.length} حصة بدون معلم (لن تُوضع) — راجع التوزيع`]);
   if (!out.length) out.push(['ok', 'البيانات سليمة وجاهزة للتوليد']);
   return out;
@@ -391,6 +414,7 @@ VIEWS.rules = () => {
    <tr><td>✔ الحصص المزدوجة متتالية</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ احترام الأوقات غير المتاحة للمعلم</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ أقصى عدد حصص للمعلم في اليوم، وأقصى حصص متتالية (عامة / القسم / رئيس الشعبة / المعلم — يُطبَّق الأشد)</td><td class="ok">إلزامي (إن حُدّد)</td></tr>
+   <tr><td>✔ أقصى عدد فصول لمادة أو مجموعة مواد بنفس الحصة، أقصى حصص متتالية للمادة، وحدود الحصة الأولى والأخيرة</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ اجتماعات الأقسام، أوقات رؤساء الشعب المحجوزة، ويوم بدون حصص للمعلم</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ أقصى عدد حصص للمادة في اليوم، والحصص الممنوعة للمادة</td><td class="ok">إلزامي</td></tr>
    <tr><td>✔ توفر القاعة الخاصة</td><td class="ok">إلزامي</td></tr>
@@ -399,6 +423,16 @@ VIEWS.rules = () => {
    <tr><td><label style="color:var(--ink)"><input type="checkbox" id="rGaps" ${R.gaps ? 'checked' : ''}> تقليل الفراغات في جدول المعلم</label></td><td>تفضيل</td></tr>
    </table></div>
 
+   <div class="card"><h2>قواعد المواد</h2>
+    <p class="mute">اترك الخانة فارغة = بدون حد. اكتب 0 = ممنوع. مثال: الموسيقى "أقصى بنفس الحصة" = 1 يعني لا يكون فصلان موسيقى بنفس الحصة.</p>
+    <div class="scroll"><table class="t"><tr><th>المادة</th><th>أقصى فصول بنفس الحصة (في المدرسة)</th><th>أقصى حصص متتالية للفصل</th><th>أقصى مرات بالحصة الأولى أسبوعياً</th><th>أقصى مرات بالحصة الأخيرة أسبوعياً</th></tr>
+    ${S.subjects.map((s, i) => `<tr><th style="background:${s.color}">${esc(s.name)}</th>${['maxSim', 'maxConsec', 'firstMax', 'lastMax'].map(k => `<td><input type="number" min="0" data-sr="${i}" data-k="${k}" value="${s[k] ?? ''}" placeholder="بدون حد" style="width:90px"></td>`).join('')}</tr>`).join('')}
+    </table></div></div>
+   <div class="card"><h2>مجموعات المواد المتزامنة</h2>
+    <p class="mute">مثال: الحاسوب + الفنية بحد أقصى 2 → لا يكون أكثر من فصلين (حاسوب أو فنية) في نفس الحصة.</p>
+    ${(R.conc || []).map((r, i) => `<div class="row" style="border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px">${S.subjects.map(s => `<label style="display:inline-flex;gap:3px;color:#111;background:${s.color};padding:2px 6px;border-radius:6px"><input type="checkbox" data-cg="${i}" value="${s.id}" ${r.subs.includes(s.id) ? 'checked' : ''}>${esc(s.short || s.name)}</label>`).join('')}
+      <span>الحد الأقصى بنفس الحصة:</span><input type="number" min="1" data-cm="${i}" value="${r.max}" style="width:70px"><button class="btn r s" data-cd="${i}">حذف</button></div>`).join('')}
+    <button class="btn o s" id="addConc">+ إضافة مجموعة</button></div>
    <div class="card"><h2>القواعد العامة (كل المعلمين)</h2><div class="grid">
     <div><label>أقصى حصص للمعلم في اليوم</label><input type="number" min="0" data-g="tMaxDay" value="${R.tMaxDay || ''}" placeholder="بدون حد"></div>
     <div><label>أقصى حصص متتالية للمعلم</label><input type="number" min="0" data-g="tMaxConsec" value="${R.tMaxConsec || ''}" placeholder="بدون حد"></div>
@@ -424,6 +458,11 @@ VIEWS.rules = () => {
    <div class="card"><h2>إحصائيات الجدول</h2>${stats()}</div>${nextBtn('tt')}`;
   $('#rSpread').onchange = e => { R.spread = e.target.checked; save(); };
   $('#rGaps').onchange = e => { R.gaps = e.target.checked; save(); };
+  $('#main').querySelectorAll('[data-sr]').forEach(i => i.onchange = e => { S.subjects[+i.dataset.sr][i.dataset.k] = e.target.value === '' ? null : +e.target.value; save(); render(); });
+  $('#addConc').onclick = () => { (R.conc ||= []).push({ subs: [], max: 2 }); save(); render(); };
+  $('#main').querySelectorAll('[data-cg]').forEach(i => i.onchange = () => { R.conc[+i.dataset.cg].subs = [...$('#main').querySelectorAll(`[data-cg="${i.dataset.cg}"]:checked`)].map(x => x.value); save(); });
+  $('#main').querySelectorAll('[data-cm]').forEach(i => i.onchange = e => { R.conc[+i.dataset.cm].max = Math.max(1, +e.target.value || 1); save(); });
+  $('#main').querySelectorAll('[data-cd]').forEach(b => b.onclick = () => { R.conc.splice(+b.dataset.cd, 1); save(); render(); });
   $('#main').querySelectorAll('[data-g]').forEach(i => i.onchange = e => { R[i.dataset.g] = +e.target.value || 0; save(); render(); });
   $('#main').querySelectorAll('[data-hnp]').forEach(i => i.onchange = () => { R.headNoP = [...$('#main').querySelectorAll('[data-hnp]:checked')].map(x => +x.value); save(); });
   $('#headSlots').onclick = () => { R.headSlots ||= []; slotDialog('أوقات محجوزة لرؤساء الشعب', R.headSlots, render); };
@@ -449,6 +488,9 @@ function generate(keepPlaced) {
   const D = 5, PP = P(), cards = S.cards, R = S.rules;
   const occ = {}; const cell = k => occ[k] || (occ[k] = Array.from({ length: D }, () => Array(PP).fill(-1)));
   const unav = {}, tMax = {}, tCons = {}; S.teachers.forEach(t => { const e = effT(t.id); unav[t.id] = e.unav; tMax[t.id] = e.max; tCons[t.id] = e.consec; });
+  const CR = concRules(), crOf = {}; S.subjects.forEach(s => crOf[s.id] = CR.map((r, i) => r.subs.includes(s.id) ? i : -1).filter(i => i >= 0));
+  const conc = CR.map(() => Array.from({ length: D }, () => Array.from({ length: PP }, () => [])));
+  const SI = {}; S.subjects.forEach(s => SI[s.id] = { mc: lim(s.maxConsec), fm: lim(s.firstMax), lm: lim(s.lastMax) });
   const runLen = (row, p, len) => { let n = len, a = p - 1; while (a >= 0 && row[a] >= 0) { n++; a--; } let b = p + len; while (b < PP && row[b] >= 0) { n++; b++; } return n; };
   const tDay = {}; const tdk = (t, d) => t + '|' + d;
   const cnt = {}; cards.forEach(c => { const k = c.cls + '|' + c.sub; cnt[k] = (cnt[k] || 0) + 1; });
@@ -456,8 +498,8 @@ function generate(keepPlaced) {
   const subRooms = {}; S.subjects.forEach(s => subRooms[s.id] = roomsFor(s.id));
   const noP = {}; S.subjects.forEach(s => noP[s.id] = new Set(s.noP || []));
   const dayCount = {}; const dk = (c, d) => c.cls + '|' + c.sub + '|' + d;
-  const put = (i, d, p, room) => { const c = cards[i]; c.d = d; c.p = p; c.room = room || null; for (let k = 0; k < c.len; k++) { cell('c' + c.cls)[d][p + k] = i; c.teachers.forEach(t => cell('t' + t)[d][p + k] = i); if (room) cell('r' + room)[d][p + k] = i; } c.teachers.forEach(t => tDay[tdk(t, d)] = (tDay[tdk(t, d)] || 0) + c.len); dayCount[dk(c, d)] = (dayCount[dk(c, d)] || 0) + 1; };
-  const take = i => { const c = cards[i]; if (c.d == null) return; for (let k = 0; k < c.len; k++) { cell('c' + c.cls)[c.d][c.p + k] = -1; c.teachers.forEach(t => cell('t' + t)[c.d][c.p + k] = -1); if (c.room) cell('r' + c.room)[c.d][c.p + k] = -1; } c.teachers.forEach(t => tDay[tdk(t, c.d)] -= c.len); dayCount[dk(c, c.d)]--; c.d = c.p = null; c.room = null; };
+  const put = (i, d, p, room) => { const c = cards[i]; c.d = d; c.p = p; c.room = room || null; for (let k = 0; k < c.len; k++) { cell('c' + c.cls)[d][p + k] = i; c.teachers.forEach(t => cell('t' + t)[d][p + k] = i); if (room) cell('r' + room)[d][p + k] = i; crOf[c.sub].forEach(r => conc[r][d][p + k].push(i)); } c.teachers.forEach(t => tDay[tdk(t, d)] = (tDay[tdk(t, d)] || 0) + c.len); dayCount[dk(c, d)] = (dayCount[dk(c, d)] || 0) + 1; };
+  const take = i => { const c = cards[i]; if (c.d == null) return; for (let k = 0; k < c.len; k++) { cell('c' + c.cls)[c.d][c.p + k] = -1; c.teachers.forEach(t => cell('t' + t)[c.d][c.p + k] = -1); if (c.room) cell('r' + c.room)[c.d][c.p + k] = -1; crOf[c.sub].forEach(r => { const A = conc[r][c.d][c.p + k], x = A.indexOf(i); if (x >= 0) A.splice(x, 1); }); } c.teachers.forEach(t => tDay[tdk(t, c.d)] -= c.len); dayCount[dk(c, c.d)]--; c.d = c.p = null; c.room = null; };
   // يرجع [قائمة البطاقات المتعارضة، القاعة] أو null إن كان مستحيلاً
   const conflicts = (i, d, p) => {
     const c = cards[i]; if (p + c.len > PP) return null;
@@ -467,6 +509,16 @@ function generate(keepPlaced) {
       for (const t of c.teachers) { if (unav[t]?.has(d + ':' + (p + k))) return null; const o = cell('t' + t)[d][p + k]; if (o >= 0) set.add(o); }
       const o = cell('c' + c.cls)[d][p + k]; if (o >= 0) set.add(o);
     }
+    const si = SI[c.sub] || {};
+    for (let k = 0; k < c.len; k++) for (const r of crOf[c.sub]) {
+      if (CR[r].max === 0) return null;
+      let L = conc[r][d][p + k].filter(j => !set.has(j));
+      while (L.length >= CR[r].max) { const cand = L.filter(j => !cards[j].locked); if (!cand.length) return null; const j = cand[Math.floor(Math.random() * cand.length)]; set.add(j); L = L.filter(x => x !== j); }
+    }
+    if (si.mc != null) { const row = cell('c' + c.cls)[d]; const same = x => x >= 0 && x < PP && row[x] >= 0 && !set.has(row[x]) && cards[row[x]].sub === c.sub; let n = c.len, a = p - 1; while (same(a)) { n++; a--; } let b = p + c.len; while (same(b)) { n++; b++; } if (n > Math.max(si.mc, 1)) return null; }
+    const edge = (lmV, test) => { if (lmV == null) return true; if (lmV === 0) return false; const ex = cards.filter((o, j) => j !== i && o.d != null && o.cls === c.cls && o.sub === c.sub && test(o) && !set.has(j)); for (let x = 0; x <= ex.length - lmV; x++) set.add(cards.indexOf(ex[x])); return true; };
+    if (p === 0 && !edge(si.fm, o => o.p === 0)) return null;
+    if (p + c.len === PP && !edge(si.lm, o => o.p + o.len === PP)) return null;
     for (const t of c.teachers) if (tCons[t] < 99 && runLen(cell('t' + t)[d], p, c.len) > tCons[t]) return null;
     for (const t of c.teachers) if ((tDay[tdk(t, d)] || 0) + c.len > tMax[t]) {
       // أزح حصص المعلم الأخرى في هذا اليوم إن لزم
@@ -547,6 +599,7 @@ function canMove(card, d, p, ignore = []) {
   for (const t of card.teachers) { const m = effT(t).max < 99 ? effT(t).max : 0; if (m && others.filter(o => o.teachers.includes(t)).reduce((a, o) => a + o.len, 0) + card.len > m) return `${tch(t).name} تجاوز أقصى ${m} حصص في اليوم`; }
   const mx = s?.maxDay || Math.ceil(S.cards.filter(o => o.cls === card.cls && o.sub === card.sub).length / 5);
   if (others.filter(o => o.cls === card.cls && o.sub === card.sub).length >= mx) return `${s.name} وصلت الحد الأقصى في هذا اليوم`;
+  const se = subjRuleErr(card, d, p, ignore); if (se) return se;
   const rs = roomsFor(card.sub);
   if (rs.length) { const free = rs.find(r => !others.some(o => o.room === r && p < o.p + o.len && o.p < p + card.len)); if (!free) return 'لا توجد قاعة متاحة'; card._room = free; }
   return '';
